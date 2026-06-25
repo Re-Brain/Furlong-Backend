@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 import models.models as models, schemas.auth as auth
 from core.auth import hash_password, verify_password, create_access_token, decode_token
+from core.cloudinary import delete_image
 
 router = APIRouter()
 
@@ -61,7 +62,7 @@ def register_farmer(data: auth.FarmerRegister, db: Session = Depends(get_db)):
     new_farm = models.Farm(
         name=data.farm_name,
         owner_id=new_user.id,
-        is_active=False  # Phase 1 — pending documentation
+        status="pending"  # Phase 1 — pending documentation
     )
     db.add(new_farm)
     db.commit()
@@ -84,11 +85,11 @@ def update_my_password(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if not verify_password(data.current_password, current_user.hashed_password):
-        raise HTTPException(status_code=400, detail="Current password is incorrect.")
-
     if len(data.new_password) < 8:
         raise HTTPException(status_code=422, detail="New password must be at least 8 characters.")
+
+    if not verify_password(data.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
 
     current_user.hashed_password = hash_password(data.new_password)
     db.commit()
@@ -100,6 +101,11 @@ def delete_my_account(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if current_user.farm:
+        for horse in current_user.farm.horses:
+            for image in horse.images:
+                delete_image(image.image_public_id)
+
     db.delete(current_user)
     db.commit()
     return Response(status_code=204)
