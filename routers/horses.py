@@ -250,6 +250,9 @@ def delete_horse(
     if horse.farm_id != farm.id:
         raise HTTPException(status_code=403, detail="You do not own this horse")
 
+    for image in horse.images:
+        delete_image(image.image_public_id)
+
     db.delete(horse)
     db.commit()
     return Response(status_code=204)
