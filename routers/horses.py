@@ -163,7 +163,7 @@ def reorder_horse_images(
     return horse
 
 
-@router.post("/horses/{horse_id}/race-records", response_model=horse_schemas.RaceRecordResponse, status_code=201)
+@router.post("/horses/{horse_id}/race-records", response_model=horse_schemas.HorseResponse, status_code=201)
 def create_race_record(
     horse_id: int,
     data: horse_schemas.RaceRecordCreate,
@@ -179,8 +179,8 @@ def create_race_record(
     record = models.RaceRecord(**data.model_dump(), horse_id=horse.id)
     db.add(record)
     db.commit()
-    db.refresh(record)
-    return record
+    db.refresh(horse)
+    return horse
 
 
 @router.patch("/horses/{horse_id}/race-records/{record_id}", response_model=horse_schemas.RaceRecordResponse)
@@ -212,7 +212,7 @@ def update_race_record(
     return record
 
 
-@router.delete("/horses/{horse_id}/race-records/{record_id}", status_code=204)
+@router.delete("/horses/{horse_id}/race-records/{record_id}", response_model=horse_schemas.HorseResponse)
 def delete_race_record(
     horse_id: int,
     record_id: int,
@@ -234,7 +234,8 @@ def delete_race_record(
 
     db.delete(record)
     db.commit()
-    return Response(status_code=204)
+    db.refresh(horse)
+    return horse
 
 
 @router.delete("/horses/{horse_id}", status_code=204)
