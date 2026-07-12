@@ -31,6 +31,7 @@ class Farm(Base):
     owner = relationship("User", back_populates="farm", passive_deletes=True)
 
     horses = relationship("Horse", back_populates="farm", cascade="all, delete-orphan")
+    images = relationship("FarmImage", back_populates="farm", cascade="all, delete-orphan", order_by="FarmImage.position")
 
 
 class Horse(Base):
@@ -38,6 +39,7 @@ class Horse(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
+    story = Column(Text, nullable=True)
     date_of_birth = Column(Date, nullable=True)
     color = Column(String, nullable=True)
     gender = Column(String, nullable=True)      # colt | stallion | gelding | filly | mare
@@ -80,3 +82,15 @@ class HorseImage(Base):
 
     horse_id = Column(Integer, ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
     horse = relationship("Horse", back_populates="images")
+
+
+class FarmImage(Base):
+    __tablename__ = "farm_images"
+
+    id = Column(Integer, primary_key=True, index=True)
+    image_url = Column(String, nullable=False)
+    image_public_id = Column(String, nullable=False)
+    position = Column(Integer, nullable=False, default=0)
+
+    farm_id = Column(Integer, ForeignKey("farms.id", ondelete="CASCADE"), nullable=False)
+    farm = relationship("Farm", back_populates="images")

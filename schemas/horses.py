@@ -5,6 +5,7 @@ from datetime import date
 
 class HorseCreate(BaseModel):
     name: str
+    story: Optional[str] = None
     date_of_birth: Optional[date] = None
     color: Optional[str] = None
     gender: Optional[str] = None
@@ -18,6 +19,7 @@ class HorseCreate(BaseModel):
 
 class HorseUpdate(BaseModel):
     name: Optional[str] = None
+    story: Optional[str] = None
     date_of_birth: Optional[date] = None
     color: Optional[str] = None
     gender: Optional[str] = None
@@ -83,6 +85,7 @@ class ImageReorderRequest(BaseModel):
 class HorseResponse(BaseModel):
     id: int
     name: str
+    story: Optional[str] = None
     date_of_birth: Optional[date] = None
     color: Optional[str] = None
     gender: Optional[str] = None
