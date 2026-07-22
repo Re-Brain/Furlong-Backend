@@ -69,6 +69,26 @@ def update_horse(
     return horse
 
 
+@router.put("/horses/{horse_id}/periods", response_model=horse_schemas.HorseResponse)
+def update_horse_periods(
+    horse_id: int,
+    data: horse_schemas.HorsePeriodsUpdate,
+    farm: models.Farm = Depends(get_farmer_farm),
+    db: Session = Depends(get_db),
+):
+    horse = db.query(models.Horse).filter(models.Horse.id == horse_id).first()
+    if not horse:
+        raise HTTPException(status_code=404, detail="Horse not found")
+    if horse.farm_id != farm.id:
+        raise HTTPException(status_code=403, detail="You do not own this horse")
+
+    # Already validated and normalized to canonical order by the schema.
+    horse.periods = data.periods
+    db.commit()
+    db.refresh(horse)
+    return horse
+
+
 @router.post("/horses/{horse_id}/image", response_model=horse_schemas.HorseResponse)
 def upload_horse_image(
     horse_id: int,

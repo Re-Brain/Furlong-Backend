@@ -1,6 +1,9 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 from datetime import date
+
+from core.availability import PERIOD_KEYS, default_horse_periods, normalize_periods
+from schemas.farms import FarmAvailability
 
 
 class HorseCreate(BaseModel):
@@ -82,6 +85,21 @@ class ImageReorderRequest(BaseModel):
     image_ids: List[int]
 
 
+class HorsePeriodsUpdate(BaseModel):
+    periods: List[str]
+
+    @field_validator("periods")
+    @classmethod
+    def validate_periods(cls, v: List[str]) -> List[str]:
+        invalid = [p for p in v if p not in PERIOD_KEYS]
+        if invalid:
+            raise ValueError(
+                f"periods must be a subset of {PERIOD_KEYS}; got invalid values {invalid}"
+            )
+        # Dedupe and reorder into canonical order.
+        return normalize_periods(v)
+
+
 class HorseResponse(BaseModel):
     id: int
     name: str
@@ -98,6 +116,17 @@ class HorseResponse(BaseModel):
     farm_id: int
     images: List[HorseImageResponse] = []
     race_records: List[RaceRecordResponse] = []
+    # Visit periods this horse opts into. Defaults to all three when unset (NULL).
+    periods: List[str] = []
+    # Owning farm's full availability object (resolved to default when unconfigured).
+    farm_availability: FarmAvailability
+
+    @field_validator("periods", mode="before")
+    @classmethod
+    def resolve_periods(cls, v) -> List[str]:
+        if v is None:
+            return default_horse_periods()
+        return normalize_periods(v)
 
     class Config:
         from_attributes = True

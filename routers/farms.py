@@ -5,6 +5,7 @@ import models.models as models
 from database import get_db
 from core.auth import decode_token
 from core.cloudinary import upload_image, delete_image
+from core.availability import default_farm_availability
 import schemas.farms as farm_schemas
 
 router = APIRouter()
@@ -45,6 +46,34 @@ def update_my_farm(
     db.commit()
     db.refresh(farm)
     return farm
+
+
+@router.get("/farms/me/availability", response_model=farm_schemas.FarmAvailability)
+def get_my_farm_availability(
+    current_user: models.User = Depends(get_current_farmer),
+    db: Session = Depends(get_db),
+):
+    farm = db.query(models.Farm).filter(models.Farm.owner_id == current_user.id).first()
+    if not farm:
+        raise HTTPException(status_code=404, detail="Farm not found")
+    # Never configured -> return the default (do not 404).
+    return farm.availability if farm.availability is not None else default_farm_availability()
+
+
+@router.put("/farms/me/availability", response_model=farm_schemas.FarmAvailability)
+def update_my_farm_availability(
+    data: farm_schemas.FarmAvailability,
+    current_user: models.User = Depends(get_current_farmer),
+    db: Session = Depends(get_db),
+):
+    farm = db.query(models.Farm).filter(models.Farm.owner_id == current_user.id).first()
+    if not farm:
+        raise HTTPException(status_code=404, detail="Farm not found")
+
+    farm.availability = data.model_dump()
+    db.commit()
+    db.refresh(farm)
+    return farm.availability
 
 
 @router.post("/farms/me/image", response_model=farm_schemas.FarmResponse)
