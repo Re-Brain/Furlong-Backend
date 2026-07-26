@@ -7,11 +7,16 @@ from database import get_db
 from routers.auth import get_current_user
 from routers.farms import get_current_farmer
 from core.availability import default_horse_periods, DEFAULT_MIN_LEAD_DAYS
+from core import email
 import schemas.bookings as booking_schemas
 
 router = APIRouter()
 
 BOOKING_STATUSES = {"pending", "confirmed", "declined", "cancelled"}
+
+
+def _reason_missing(reason: Optional[str]) -> bool:
+    return reason is None or not reason.strip()
 
 
 def get_current_farmer_farm(
@@ -130,6 +135,8 @@ def create_booking(
     db.add(booking)
     db.commit()
     db.refresh(booking)
+    email.send_new_booking_request(booking)
+    email.send_new_booking_confirmation(booking)
     return booking
 
 
@@ -163,6 +170,25 @@ def update_booking(
                 status_code=409,
                 detail=f"A {booking.status} booking cannot be cancelled",
             )
+
+        # A farm-owner-initiated cancellation must explain why; a visitor cancelling
+        # their own booking doesn't need to. (If someone is somehow both the farm
+        # owner and the visitor, that's treated as a visitor action, matching the
+        # email branch below — reason stays optional.)
+        is_farmer_action = is_farm_owner and not is_visitor
+        if is_farmer_action and _reason_missing(data.reason):
+            raise HTTPException(status_code=422, detail="A reason is required when the farm cancels a booking")
+
+        booking.status = data.status
+        booking.reason = data.reason
+        db.commit()
+        db.refresh(booking)
+        if is_visitor:
+            email.send_booking_cancelled_by_visitor(booking)
+            email.send_booking_cancellation_receipt(booking)
+        else:
+            email.send_booking_cancelled_by_farmer(booking)
+            email.send_booking_cancelled_by_farmer_receipt(booking)
     else:
         # confirmed / declined: only the farm owner may set these, and only from pending.
         if booking.farm.owner_id != current_user.id:
@@ -174,7 +200,24 @@ def update_booking(
                 detail=f"A {booking.status} booking cannot be {data.status}",
             )
 
-    booking.status = data.status
-    db.commit()
-    db.refresh(booking)
+        if booking.date < date_cls.today():
+            raise HTTPException(status_code=409, detail="This request's visit date has already passed.")
+
+        if data.status == "declined" and _reason_missing(data.reason):
+            raise HTTPException(status_code=422, detail="A reason is required when declining a booking")
+
+        if data.status == "confirmed" and data.reason is not None:
+            raise HTTPException(status_code=422, detail="A reason is not applicable when confirming a booking")
+
+        booking.status = data.status
+        booking.reason = data.reason
+        db.commit()
+        db.refresh(booking)
+        if data.status == "confirmed":
+            email.send_booking_confirmed(booking)
+            email.send_booking_confirmed_receipt(booking)
+        else:
+            email.send_booking_declined(booking)
+            email.send_booking_declined_receipt(booking)
+
     return booking

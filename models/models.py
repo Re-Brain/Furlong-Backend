@@ -133,7 +133,13 @@ class Booking(Base):
     party_size = Column(Integer, nullable=False)
     note = Column(Text, nullable=True)
     status = Column(String, nullable=False, default="pending")  # pending | confirmed | declined | cancelled
+    # Farmer's explanation when declining or cancelling a confirmed visit. Optional
+    # everywhere else (e.g. a visitor's own cancellation never sets this).
+    reason = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Stamped once the pending-booking reminder job (scripts/send_booking_reminders.py)
+    # successfully emails the farmer, so the reminder never fires more than once.
+    reminder_sent_at = Column(DateTime(timezone=True), nullable=True)
 
     visitor = relationship("User")
     horse = relationship("Horse")

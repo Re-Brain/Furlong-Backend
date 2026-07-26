@@ -13,6 +13,10 @@ class BookingCreate(BaseModel):
 
 class BookingUpdate(BaseModel):
     status: Literal["confirmed", "declined", "cancelled"]
+    # Required for a farm-owner decline/cancel, optional for a visitor's own
+    # cancellation, and rejected outright for confirm. Enforced in the route,
+    # since the rule is keyed on who's making the change, not just the status.
+    reason: Optional[str] = None
 
 
 class BookingResponse(BaseModel):
@@ -31,6 +35,7 @@ class BookingResponse(BaseModel):
     party_size: int
     note: Optional[str] = None
     status: str
+    reason: Optional[str] = None
     created_at: datetime
 
     class Config:
