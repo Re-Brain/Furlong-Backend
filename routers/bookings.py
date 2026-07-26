@@ -145,10 +145,20 @@ def update_booking(
         raise HTTPException(status_code=404, detail="Booking not found")
 
     if data.status == "cancelled":
-        if booking.visitor_id != current_user.id:
-            raise HTTPException(status_code=403, detail="You can only cancel your own booking")
+        is_visitor = booking.visitor_id == current_user.id
+        is_farm_owner = booking.farm.owner_id == current_user.id
+        if not is_visitor and not is_farm_owner:
+            raise HTTPException(status_code=403, detail="You are not allowed to cancel this booking")
 
-        if booking.status not in ("pending", "confirmed"):
+        # The visitor may cancel from pending or confirmed; the farm owner only from
+        # confirmed (a pending booking should be declined, not cancelled, by the farm).
+        allowed_statuses = set()
+        if is_visitor:
+            allowed_statuses.update({"pending", "confirmed"})
+        if is_farm_owner:
+            allowed_statuses.add("confirmed")
+
+        if booking.status not in allowed_statuses:
             raise HTTPException(
                 status_code=409,
                 detail=f"A {booking.status} booking cannot be cancelled",
