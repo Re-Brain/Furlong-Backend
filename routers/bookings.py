@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from datetime import date as date_cls
+from datetime import date as date_cls, timedelta
 from typing import Optional
 import models.models as models
 from database import get_db
 from routers.auth import get_current_user
 from routers.farms import get_current_farmer
-from core.availability import default_horse_periods
+from core.availability import default_horse_periods, DEFAULT_MIN_LEAD_DAYS
 import schemas.bookings as booking_schemas
 
 router = APIRouter()
@@ -76,6 +76,13 @@ def create_booking(
 
     if data.date < date_cls.today():
         raise HTTPException(status_code=422, detail="Booking date cannot be in the past")
+
+    min_lead_days = availability.get("min_lead_days", DEFAULT_MIN_LEAD_DAYS)
+    if data.date < date_cls.today() + timedelta(days=min_lead_days):
+        raise HTTPException(
+            status_code=409,
+            detail=f"This farm requires at least {min_lead_days} days' notice for bookings.",
+        )
 
     # Python's weekday() is Monday=0..Sunday=6; the schedule uses 0=Sunday..6=Saturday.
     weekday = (data.date.weekday() + 1) % 7

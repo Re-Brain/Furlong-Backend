@@ -14,6 +14,9 @@ PERIOD_WINDOWS = {
     "evening": ("16:00", "18:00"),
 }
 
+# Default minimum lead time (in days) for farms that haven't set their own.
+DEFAULT_MIN_LEAD_DAYS = 7
+
 
 def to_minutes(value: str) -> int:
     """Parse a strict 24h "HH:MM" string into minutes since midnight.
@@ -44,6 +47,7 @@ def default_farm_availability() -> dict:
             "afternoon": {"open": True, "start": "12:00", "end": "16:00"},
             "evening": {"open": False, "start": "16:00", "end": "18:00"},
         },
+        "min_lead_days": DEFAULT_MIN_LEAD_DAYS,
     }
 
 

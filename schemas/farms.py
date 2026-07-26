@@ -1,7 +1,7 @@
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List
 
-from core.availability import PERIOD_KEYS, PERIOD_WINDOWS, to_minutes
+from core.availability import DEFAULT_MIN_LEAD_DAYS, PERIOD_KEYS, PERIOD_WINDOWS, to_minutes
 
 
 class FarmUpdate(BaseModel):
@@ -41,6 +41,8 @@ class FarmAvailability(BaseModel):
     enabled: bool = True
     weekdays: List[int]
     periods: FarmPeriods
+    # How many days ahead a visit must be booked. Same-day (0) is not allowed.
+    min_lead_days: int = Field(default=DEFAULT_MIN_LEAD_DAYS, ge=1, le=90)
 
     @field_validator("weekdays")
     @classmethod
