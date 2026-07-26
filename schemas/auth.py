@@ -34,6 +34,10 @@ class UserMe(BaseModel):
     class Config:
         from_attributes = True
 
+class PasswordUpdate(BaseModel):
+    current_password: str
+    new_password: str
+
 class Token(BaseModel):
     access_token: str
     token_type: str

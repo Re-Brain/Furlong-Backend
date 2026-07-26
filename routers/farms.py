@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 import models.models as models
 from database import get_db
 from core.auth import decode_token
+from core.cloudinary import upload_image, delete_image
+from core.availability import default_farm_availability
 import schemas.farms as farm_schemas
 
 router = APIRouter()
@@ -39,6 +42,119 @@ def update_my_farm(
         setattr(farm, field, value)
 
     farm.status = "active" if all([farm.location, farm.description, farm.capacity]) else "pending"
+
+    db.commit()
+    db.refresh(farm)
+    return farm
+
+
+@router.get("/farms/me/availability", response_model=farm_schemas.FarmAvailability)
+def get_my_farm_availability(
+    current_user: models.User = Depends(get_current_farmer),
+    db: Session = Depends(get_db),
+):
+    farm = db.query(models.Farm).filter(models.Farm.owner_id == current_user.id).first()
+    if not farm:
+        raise HTTPException(status_code=404, detail="Farm not found")
+    # Never configured -> return the default (do not 404).
+    return farm.availability if farm.availability is not None else default_farm_availability()
+
+
+@router.put("/farms/me/availability", response_model=farm_schemas.FarmAvailability)
+def update_my_farm_availability(
+    data: farm_schemas.FarmAvailability,
+    current_user: models.User = Depends(get_current_farmer),
+    db: Session = Depends(get_db),
+):
+    farm = db.query(models.Farm).filter(models.Farm.owner_id == current_user.id).first()
+    if not farm:
+        raise HTTPException(status_code=404, detail="Farm not found")
+
+    farm.availability = data.model_dump()
+    db.commit()
+    db.refresh(farm)
+    return farm.availability
+
+
+@router.post("/farms/me/image", response_model=farm_schemas.FarmResponse)
+def upload_farm_image(
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(get_current_farmer),
+    db: Session = Depends(get_db),
+):
+    farm = db.query(models.Farm).filter(models.Farm.owner_id == current_user.id).first()
+    if not farm:
+        raise HTTPException(status_code=404, detail="Farm not found")
+    if len(farm.images) >= 3:
+        raise HTTPException(status_code=400, detail="Maximum of 3 images allowed per farm")
+
+    max_pos = db.query(func.max(models.FarmImage.position)).filter(
+        models.FarmImage.farm_id == farm.id
+    ).scalar()
+    next_position = (max_pos + 1) if max_pos is not None else 0
+
+    result = upload_image(file.file.read(), folder="farms")
+    new_image = models.FarmImage(
+        image_url=result["secure_url"],
+        image_public_id=result["public_id"],
+        farm_id=farm.id,
+        position=next_position,
+    )
+    db.add(new_image)
+    db.commit()
+    db.refresh(farm)
+    return farm
+
+
+@router.delete("/farms/me/image/{image_id}", response_model=farm_schemas.FarmResponse)
+def delete_farm_image(
+    image_id: int,
+    current_user: models.User = Depends(get_current_farmer),
+    db: Session = Depends(get_db),
+):
+    farm = db.query(models.Farm).filter(models.Farm.owner_id == current_user.id).first()
+    if not farm:
+        raise HTTPException(status_code=404, detail="Farm not found")
+
+    image = db.query(models.FarmImage).filter(
+        models.FarmImage.id == image_id,
+        models.FarmImage.farm_id == farm.id,
+    ).first()
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    delete_image(image.image_public_id)
+    db.delete(image)
+    db.flush()
+
+    remaining = db.query(models.FarmImage).filter(
+        models.FarmImage.farm_id == farm.id
+    ).order_by(models.FarmImage.position).all()
+    for i, img in enumerate(remaining):
+        img.position = i
+
+    db.commit()
+    db.refresh(farm)
+    return farm
+
+
+@router.patch("/farms/me/images/order", response_model=farm_schemas.FarmResponse)
+def reorder_farm_images(
+    data: farm_schemas.ImageReorderRequest,
+    current_user: models.User = Depends(get_current_farmer),
+    db: Session = Depends(get_db),
+):
+    farm = db.query(models.Farm).filter(models.Farm.owner_id == current_user.id).first()
+    if not farm:
+        raise HTTPException(status_code=404, detail="Farm not found")
+
+    existing_ids = {img.id for img in farm.images}
+    if set(data.image_ids) != existing_ids or len(data.image_ids) != len(existing_ids):
+        raise HTTPException(status_code=400, detail="Provided image IDs must exactly match this farm's images")
+
+    image_map = {img.id: img for img in farm.images}
+    for position, image_id in enumerate(data.image_ids):
+        image_map[image_id].position = position
 
     db.commit()
     db.refresh(farm)
