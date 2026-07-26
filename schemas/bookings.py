@@ -11,6 +11,10 @@ class BookingCreate(BaseModel):
     note: Optional[str] = ""                          # may be "" or omitted
 
 
+class BookingUpdate(BaseModel):
+    status: Literal["confirmed", "declined", "cancelled"]
+
+
 class BookingResponse(BaseModel):
     id: int
     horse_id: int

@@ -123,3 +123,40 @@ def create_booking(
     db.commit()
     db.refresh(booking)
     return booking
+
+
+@router.patch("/bookings/{booking_id}", response_model=booking_schemas.BookingResponse)
+def update_booking(
+    booking_id: int,
+    data: booking_schemas.BookingUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    booking = db.query(models.Booking).filter(models.Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    if data.status == "cancelled":
+        if booking.visitor_id != current_user.id:
+            raise HTTPException(status_code=403, detail="You can only cancel your own booking")
+
+        if booking.status not in ("pending", "confirmed"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"A {booking.status} booking cannot be cancelled",
+            )
+    else:
+        # confirmed / declined: only the farm owner may set these, and only from pending.
+        if booking.farm.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="You can only manage bookings for your own farm")
+
+        if booking.status != "pending":
+            raise HTTPException(
+                status_code=409,
+                detail=f"A {booking.status} booking cannot be {data.status}",
+            )
+
+    booking.status = data.status
+    db.commit()
+    db.refresh(booking)
+    return booking
