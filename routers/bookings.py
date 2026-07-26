@@ -99,6 +99,7 @@ def create_booking(
         models.Booking.horse_id == data.horse_id,
         models.Booking.date == data.date,
         models.Booking.period == data.period,
+        models.Booking.status.in_(("pending", "confirmed")),
     ).first()
     if duplicate:
         raise HTTPException(
