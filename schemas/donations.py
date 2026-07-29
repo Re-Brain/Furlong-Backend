@@ -12,6 +12,13 @@ class DonationCheckoutResponse(BaseModel):
     checkout_url: str
 
 
+class FarmDonationResponse(BaseModel):
+    id: int
+    amount_yen: int
+    donor_name: Optional[str] = None
+    created_at: datetime
+
+
 class DonationResponse(BaseModel):
     id: int
     farm_id: int
