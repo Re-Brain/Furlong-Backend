@@ -33,11 +33,10 @@ class Farm(Base):
     # back to default_farm_availability(). Shape matches the FarmAvailability schema.
     availability = Column(JSONB, nullable=True)
 
-    # Stripe Connect Express account for this farm, created via /farms/me/stripe/onboard.
+    # Stripe Connect account for this farm, created via /farms/me/stripe/onboard.
     # NULL until the farmer starts onboarding.
     stripe_account_id = Column(String, nullable=True)
-    # Kept in sync from the account.updated webhook; NOT used yet by the donation
-    # checkout flow, which still resolves accounts via the hardcoded FARM_STRIPE_ACCOUNTS map.
+    # Kept in sync from the account.updated webhook.
     payouts_enabled = Column(Boolean, nullable=False, default=False)
 
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)

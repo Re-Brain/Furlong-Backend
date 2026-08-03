@@ -116,13 +116,12 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         # .to_dict() first: this SDK version's StripeObject supports [] but not .get(),
         # including on nested objects like metadata.
         session = event["data"]["object"].to_dict()
+        metadata = session.get("metadata") or {}
 
-        # Stripe retries undelivered webhooks; don't double-record a session we already saw.
         already_recorded = db.query(models.Donation).filter(
             models.Donation.stripe_checkout_session_id == session["id"]
         ).first()
         if not already_recorded:
-            metadata = session.get("metadata") or {}
             visitor_id = int(metadata["visitor_id"]) if metadata.get("visitor_id") else None
 
             db.add(models.Donation(
