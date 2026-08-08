@@ -18,6 +18,8 @@ def get_farmer_farm(current_user: models.User = Depends(get_current_farmer), db:
     farm = db.query(models.Farm).filter(models.Farm.owner_id == current_user.id).first()
     if not farm:
         raise HTTPException(status_code=404, detail="Farm not found")
+    if farm.status != "active":
+        raise HTTPException(status_code=403, detail="Your farm must be approved before you can manage horses")
     return farm
 
 

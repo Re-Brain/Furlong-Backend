@@ -12,6 +12,8 @@ import os
 import resend
 from dotenv import load_dotenv
 
+from core.stripe_client import FRONTEND_URL
+
 load_dotenv()
 
 resend.api_key = os.getenv("RESEND_API_KEY")
@@ -118,6 +120,15 @@ def _horse_rows(horse, reason: str = None) -> str:
     return "".join(row_list)
 
 
+def _farm_rows(farm, reason: str = None) -> str:
+    row_list = [
+        _detail_row("Farm", farm.name, first=True),
+    ]
+    if reason:
+        row_list.append(_detail_row("Reason", reason, first=False))
+    return "".join(row_list)
+
+
 def _render_email(status_key: str, heading: str, intro: str, contact_line: str, rows: str, note: str = None) -> str:
     style = STATUS_STYLES[status_key]
 
@@ -196,6 +207,90 @@ def _send_horse_email(
         "subject": subject,
         "html": html,
     })
+
+
+def _send_farm_email(
+    to: str, subject: str, status_key: str, heading: str, intro: str, contact_line: str, farm,
+    note: str = None, reason: str = None,
+) -> None:
+    if EMAIL_OVERRIDE_TO:
+        subject = f"[to: {to}] {subject}"
+        to = EMAIL_OVERRIDE_TO
+
+    html = _render_email(status_key, heading, intro, contact_line, _farm_rows(farm, reason=reason), note=note)
+    resend.Emails.send({
+        "from": EMAIL_FROM,
+        "to": [to],
+        "subject": subject,
+        "html": html,
+    })
+
+
+def _render_verification_email(name: str, verify_url: str) -> str:
+    # Different shape from every other email here — a call-to-action link,
+    # not a status update — so it doesn't reuse _render_email's detail-row
+    # table, just the same header/logo/brand chrome.
+    return f"""\
+<body style="margin:0;padding:0;background-color:{COLORS['page_bg']};">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:{COLORS['page_bg']};padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:{COLORS['card_bg']};border-radius:12px;border:1px solid {COLORS['border']};overflow:hidden;">
+        <tr>
+          <td align="center" style="background-color:{COLORS['header_bg']};padding:24px 28px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto;"><tr>
+              <td style="vertical-align:middle;padding-right:14px;"><img src="{LOGO_URL}" width="48" height="48" alt="" style="display:block;border:0;" /></td>
+              <td style="vertical-align:middle;"><span style="font-family:Georgia,'Times New Roman',serif;color:#FFFFFF;font-size:30px;font-weight:bold;letter-spacing:0.3px;">{BRAND_NAME}</span></td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px;">
+            <h1 style="font-family:Georgia,'Times New Roman',serif;color:{COLORS['header_bg']};font-size:21px;margin:0 0 8px;">Verify your email</h1>
+            <p style="font-family:Arial,Helvetica,sans-serif;color:{COLORS['text']};font-size:14px;line-height:1.6;margin:0 0 20px;">Hi {name}, please confirm this is your email address to activate your {BRAND_NAME} account.</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px;"><tr>
+              <td style="background-color:{COLORS['header_bg']};border-radius:8px;">
+                <a href="{verify_url}" style="display:inline-block;padding:12px 24px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#FFFFFF;text-decoration:none;">Verify Email</a>
+              </td>
+            </tr></table>
+            <p style="font-family:Arial,Helvetica,sans-serif;color:{COLORS['muted']};font-size:12px;line-height:1.6;margin:0 0 8px;word-break:break-all;">Or paste this link into your browser: {verify_url}</p>
+            <p style="font-family:Arial,Helvetica,sans-serif;color:{COLORS['muted']};font-size:12px;margin:0;">This link expires in 24 hours.</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:{COLORS['row_bg']};border-top:1px solid {COLORS['border']};padding:14px 28px;">
+            <p style="font-family:Arial,Helvetica,sans-serif;color:{COLORS['muted']};font-size:11px;margin:0;">This is an automated message from {BRAND_NAME}. Please don't reply directly to this email.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>"""
+
+
+def _send_verification_email(to: str, subject: str, name: str, verify_url: str) -> None:
+    if EMAIL_OVERRIDE_TO:
+        subject = f"[to: {to}] {subject}"
+        to = EMAIL_OVERRIDE_TO
+
+    html = _render_verification_email(name, verify_url)
+    resend.Emails.send({
+        "from": EMAIL_FROM,
+        "to": [to],
+        "subject": subject,
+        "html": html,
+    })
+
+
+@_safe
+def send_verification_email(user, token: str) -> None:
+    """Registration -> send the new account a link to confirm their email."""
+    verify_url = f"{FRONTEND_URL}/verify-email?token={token}"
+    _send_verification_email(
+        to=user.email,
+        subject="Verify your email address",
+        name=user.name,
+        verify_url=verify_url,
+    )
 
 
 @_safe
@@ -457,6 +552,123 @@ def send_horse_rejected_receipt(horse, admin_email: str) -> None:
         contact_line=f"Farm: {horse.farm_name}",
         reason=horse.rejection_reason,
         horse=horse,
+    )
+
+
+@_safe
+def send_farm_submitted_for_review(farm, to: str) -> None:
+    """#11a Farmer submits a draft farm for review -> notify an admin."""
+    _send_farm_email(
+        to=to,
+        subject=f"New farm submitted for review: {farm.name}",
+        status_key="pending",
+        heading="New farm submitted for review",
+        intro=f"{farm.name} was submitted for review.",
+        contact_line=f"Farm: {farm.name}",
+        farm=farm,
+    )
+
+
+@_safe
+def send_farm_submission_receipt(farm) -> None:
+    """#11b Farmer submits a draft farm for review -> also confirm it to the farmer."""
+    _send_farm_email(
+        to=farm.owner.email,
+        subject=f"Your farm has been submitted for review: {farm.name}",
+        status_key="pending",
+        heading="Your farm has been submitted for review",
+        intro=f"{farm.name} has been submitted and is now awaiting admin review.",
+        contact_line=f"Farm: {farm.name}",
+        note="You'll be notified once a decision has been made. Your farm's profile is locked until then.",
+        farm=farm,
+    )
+
+
+@_safe
+def send_farm_resubmitted_for_review(farm, to: str) -> None:
+    """#12a Farmer resubmits a previously-rejected farm -> notify an admin."""
+    _send_farm_email(
+        to=to,
+        subject=f"Farm resubmitted for review: {farm.name}",
+        status_key="pending",
+        heading="Farm resubmitted for review",
+        intro=f"{farm.name} was resubmitted for review after a previous rejection.",
+        contact_line=f"Farm: {farm.name}",
+        farm=farm,
+    )
+
+
+@_safe
+def send_farm_resubmission_receipt(farm) -> None:
+    """#12b Farmer resubmits a previously-rejected farm -> also confirm it to the farmer."""
+    _send_farm_email(
+        to=farm.owner.email,
+        subject=f"Your farm has been resubmitted for review: {farm.name}",
+        status_key="pending",
+        heading="Your farm has been resubmitted for review",
+        intro=f"{farm.name} has been resubmitted and is now awaiting admin review.",
+        contact_line=f"Farm: {farm.name}",
+        note="You'll be notified once a decision has been made. Your farm's profile is locked until then.",
+        farm=farm,
+    )
+
+
+@_safe
+def send_farm_approved(farm) -> None:
+    """#13a Admin approves a farm -> notify the farmer."""
+    _send_farm_email(
+        to=farm.owner.email,
+        subject=f"Your farm has been approved: {farm.name}",
+        status_key="approved",
+        heading="Your farm has been approved!",
+        intro=f"{farm.name} has been approved and is now visible on {BRAND_NAME}.",
+        contact_line=f"Farm: {farm.name}",
+        farm=farm,
+    )
+
+
+@_safe
+def send_farm_approved_receipt(farm, admin_email: str) -> None:
+    """#13b Admin approves a farm -> also confirm it to the admin who approved it."""
+    _send_farm_email(
+        to=admin_email,
+        subject=f"You approved a farm: {farm.name}",
+        status_key="approved",
+        heading="You approved a farm",
+        intro=f"You approved {farm.name}.",
+        contact_line=f"Farm: {farm.name}",
+        farm=farm,
+    )
+
+
+@_safe
+def send_farm_rejected(farm) -> None:
+    """#14a Admin rejects a farm -> notify the farmer."""
+    _send_farm_email(
+        to=farm.owner.email,
+        subject=f"Your farm was rejected: {farm.name}",
+        status_key="rejected",
+        heading="Your farm was rejected",
+        intro=f"{farm.name} was not approved.",
+        contact_line=f"Farm: {farm.name}",
+        note="You can make changes and resubmit it for review at any time.",
+        reason=farm.rejection_reason,
+        farm=farm,
+    )
+
+
+@_safe
+def send_farm_rejected_receipt(farm, admin_email: str) -> None:
+    """#14b Admin rejects a farm -> also confirm it to the admin who rejected it."""
+    _send_farm_email(
+        to=admin_email,
+        subject=f"You rejected a farm: {farm.name}",
+        status_key="rejected",
+        heading="You rejected a farm",
+        intro=f"You rejected {farm.name}.",
+        contact_line=f"Farm: {farm.name}",
+        reason=farm.rejection_reason,
+        farm=farm,
     )
 
 

@@ -15,6 +15,7 @@ class User(Base):
     phone_code = Column(String, nullable=True)
     phone_number = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
+    email_verified = Column(Boolean, nullable=False, default=False)
 
     farm = relationship("Farm", back_populates="owner", uselist=False, cascade="all, delete-orphan")
 
@@ -26,8 +27,9 @@ class Farm(Base):
     name = Column(String, nullable=False)
     location = Column(String, nullable=True)
     description = Column(Text, nullable=True)
-    capacity = Column(Integer, nullable=True)
-    status = Column(String, default="pending")  # pending | active | rejected
+    # draft = farmer still assembling it (fully editable, invisible to admin/public)
+    # pending = submitted, frozen, awaiting an admin decision
+    status = Column(String, default="draft")  # draft | pending | active | rejected
     # Admin's explanation when rejecting the farm. Optional everywhere else.
     rejection_reason = Column(Text, nullable=True)
 
@@ -46,6 +48,7 @@ class Farm(Base):
 
     horses = relationship("Horse", back_populates="farm", cascade="all, delete-orphan")
     images = relationship("FarmImage", back_populates="farm", cascade="all, delete-orphan", order_by="FarmImage.position")
+    documents = relationship("FarmDocument", back_populates="farm", cascade="all, delete-orphan", order_by="FarmDocument.uploaded_at")
 
 
 class Horse(Base):
@@ -149,6 +152,24 @@ class FarmImage(Base):
 
     farm_id = Column(Integer, ForeignKey("farms.id", ondelete="CASCADE"), nullable=False)
     farm = relationship("Farm", back_populates="images")
+
+
+class FarmDocument(Base):
+    __tablename__ = "farm_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_type = Column(String, nullable=False)  # business_registration | insurance | facility_license
+    file_url = Column(String, nullable=False)
+    public_id = Column(String, nullable=False)
+    # The Cloudinary resource_type the upload actually landed in (image | raw |
+    # video, since these are uploaded with resource_type="auto"). Required to
+    # correctly delete the asset later — destroy() needs the matching type.
+    resource_type = Column(String, nullable=False)
+    original_filename = Column(String, nullable=True)
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    farm_id = Column(Integer, ForeignKey("farms.id", ondelete="CASCADE"), nullable=False)
+    farm = relationship("Farm", back_populates="documents")
 
 
 class Booking(Base):

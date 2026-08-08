@@ -102,9 +102,6 @@ def create_booking(
     if data.period not in horse_periods:
         raise HTTPException(status_code=409, detail=f"This horse is not available in the {data.period} period")
 
-    if farm.capacity is not None and data.party_size > farm.capacity:
-        raise HTTPException(status_code=422, detail=f"Party size exceeds the farm capacity of {farm.capacity}")
-
     # Reject an exact duplicate so a double-submit doesn't create two rows.
     duplicate = db.query(models.Booking).filter(
         models.Booking.visitor_id == current_user.id,

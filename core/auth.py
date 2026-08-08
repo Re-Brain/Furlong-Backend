@@ -40,6 +40,23 @@ def create_access_token(data: dict) -> str:
     # JWT is NOT encrypted — it is SIGNED. Data is readable but cannot be tampered with.
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
+def create_email_verification_token(email: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(hours=24)
+    # "purpose" stops this from doubling as a working access token if it
+    # ever leaks (e.g. in logs) — decode_email_verification_token checks it.
+    return jwt.encode({"sub": email, "purpose": "email_verification", "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def decode_email_verification_token(token: str) -> str:
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    if payload.get("purpose") != "email_verification":
+        raise JWTError("Wrong token type")
+    email = payload.get("sub")
+    if email is None:
+        raise JWTError("Missing subject")
+    return email
+
+
 def decode_token(token: str = Depends(oauth2_scheme)):
 
     # Create an exception to raise if token is invalid

@@ -25,6 +25,13 @@ class FarmerRegister(BaseModel):
             raise ValueError("Password must be 72 characters or fewer")
         return v
 
+class RegistrationResponse(BaseModel):
+    detail: str
+    email: str
+
+class EmailVerification(BaseModel):
+    token: str
+
 class UserMe(BaseModel):
     id: int
     name: str

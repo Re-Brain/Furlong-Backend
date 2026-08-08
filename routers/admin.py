@@ -29,13 +29,15 @@ def get_current_admin(email: str = Depends(decode_token), db: Session = Depends(
     return user
 
 
-@router.get("/farms", response_model=list[farm_schemas.FarmResponse])
+@router.get("/farms", response_model=list[farm_schemas.FarmWithDocumentsResponse])
 def get_admin_farms(
     status: Optional[str] = Query(None, description="Filter by status: pending | active | rejected"),
     current_user: models.User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    query = db.query(models.Farm)
+    # Drafts are still being assembled by the farmer — never submitted, so
+    # never part of the review queue, regardless of the status filter.
+    query = db.query(models.Farm).filter(models.Farm.status != "draft")
 
     if status is not None:
         if status not in FARM_STATUSES:
@@ -48,7 +50,23 @@ def get_admin_farms(
     return query.all()
 
 
-@router.patch("/farms/{farm_id}", response_model=farm_schemas.FarmResponse)
+@router.get("/farms/{farm_id}", response_model=farm_schemas.FarmWithDocumentsResponse)
+def get_admin_farm(
+    farm_id: int,
+    current_user: models.User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    # Same exclusion as the list — a draft was never submitted, so it's not
+    # reachable via the review queue even by direct id.
+    farm = db.query(models.Farm).filter(
+        models.Farm.id == farm_id, models.Farm.status != "draft"
+    ).first()
+    if not farm:
+        raise HTTPException(status_code=404, detail="Farm not found")
+    return farm
+
+
+@router.patch("/farms/{farm_id}", response_model=farm_schemas.FarmWithDocumentsResponse)
 def update_farm_status(
     farm_id: int,
     data: farm_schemas.FarmModerationUpdate,
@@ -67,6 +85,14 @@ def update_farm_status(
 
     db.commit()
     db.refresh(farm)
+
+    if data.status == "active":
+        email.send_farm_approved(farm)
+        email.send_farm_approved_receipt(farm, current_user.email)
+    else:
+        email.send_farm_rejected(farm)
+        email.send_farm_rejected_receipt(farm, current_user.email)
+
     return farm
 
 
