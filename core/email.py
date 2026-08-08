@@ -42,6 +42,8 @@ STATUS_STYLES = {
     "confirmed": {"bg": "#DCEEDD", "text": "#1F6B3A", "label": "Confirmed"},
     "declined": {"bg": "#F8D9D3", "text": "#B23A2E", "label": "Declined"},
     "cancelled": {"bg": "#EDE8DC", "text": "#6B6153", "label": "Cancelled"},
+    "approved": {"bg": "#DCEEDD", "text": "#1F6B3A", "label": "Approved"},
+    "rejected": {"bg": "#F8D9D3", "text": "#B23A2E", "label": "Rejected"},
 }
 
 # App's horseshoe mark, recolored to white so it reads on the dark green header bar.
@@ -93,13 +95,8 @@ def _detail_row(label: str, value: str, *, first: bool) -> str:
     )
 
 
-def _render_email(
-    status_key: str, heading: str, intro: str, contact_line: str, booking, note: str = None,
-    reason: str = None,
-) -> str:
-    style = STATUS_STYLES[status_key]
+def _booking_rows(booking, reason: str = None) -> str:
     time_range = f"{_format_time(booking.start)}–{_format_time(booking.end)} ({booking.period})"
-
     row_list = [
         _detail_row("Horse", booking.horse_name, first=True),
         _detail_row("Farm", booking.farm_name, first=False),
@@ -108,7 +105,21 @@ def _render_email(
     ]
     if reason:
         row_list.append(_detail_row("Reason", reason, first=False))
-    rows = "".join(row_list)
+    return "".join(row_list)
+
+
+def _horse_rows(horse, reason: str = None) -> str:
+    row_list = [
+        _detail_row("Horse", horse.name, first=True),
+        _detail_row("Farm", horse.farm_name, first=False),
+    ]
+    if reason:
+        row_list.append(_detail_row("Reason", reason, first=False))
+    return "".join(row_list)
+
+
+def _render_email(status_key: str, heading: str, intro: str, contact_line: str, rows: str, note: str = None) -> str:
+    style = STATUS_STYLES[status_key]
 
     note_html = ""
     if note:
@@ -161,7 +172,24 @@ def _send_booking_email(
         subject = f"[to: {to}] {subject}"
         to = EMAIL_OVERRIDE_TO
 
-    html = _render_email(status_key, heading, intro, contact_line, booking, note=note, reason=reason)
+    html = _render_email(status_key, heading, intro, contact_line, _booking_rows(booking, reason=reason), note=note)
+    resend.Emails.send({
+        "from": EMAIL_FROM,
+        "to": [to],
+        "subject": subject,
+        "html": html,
+    })
+
+
+def _send_horse_email(
+    to: str, subject: str, status_key: str, heading: str, intro: str, contact_line: str, horse,
+    note: str = None, reason: str = None,
+) -> None:
+    if EMAIL_OVERRIDE_TO:
+        subject = f"[to: {to}] {subject}"
+        to = EMAIL_OVERRIDE_TO
+
+    html = _render_email(status_key, heading, intro, contact_line, _horse_rows(horse, reason=reason), note=note)
     resend.Emails.send({
         "from": EMAIL_FROM,
         "to": [to],
@@ -312,6 +340,123 @@ def send_booking_cancelled_by_farmer_receipt(booking) -> None:
         contact_line=f"Visitor: {booking.visitor_name} ({booking.visitor_email})",
         reason=booking.reason,
         booking=booking,
+    )
+
+
+@_safe
+def send_horse_submitted_for_review(horse, to: str) -> None:
+    """#7a Farmer submits a draft horse for review -> notify an admin."""
+    _send_horse_email(
+        to=to,
+        subject=f"New horse submitted for review: {horse.name}",
+        status_key="pending",
+        heading="New horse submitted for review",
+        intro=f"{horse.farm_name} submitted {horse.name} for review.",
+        contact_line=f"Farm: {horse.farm_name}",
+        horse=horse,
+    )
+
+
+@_safe
+def send_horse_submission_receipt(horse) -> None:
+    """#7b Farmer submits a draft horse for review -> also confirm it to the farmer."""
+    _send_horse_email(
+        to=horse.farm.owner.email,
+        subject=f"Your horse has been submitted for review: {horse.name}",
+        status_key="pending",
+        heading="Your horse has been submitted for review",
+        intro=f"{horse.name} has been submitted and is now awaiting admin review.",
+        contact_line=f"Farm: {horse.farm_name}",
+        note="You'll be notified once a decision has been made. The horse's profile is locked until then.",
+        horse=horse,
+    )
+
+
+@_safe
+def send_horse_resubmitted_for_review(horse, to: str) -> None:
+    """#8a Farmer resubmits a previously-rejected horse -> notify an admin."""
+    _send_horse_email(
+        to=to,
+        subject=f"Horse resubmitted for review: {horse.name}",
+        status_key="pending",
+        heading="Horse resubmitted for review",
+        intro=f"{horse.farm_name} made changes and resubmitted {horse.name} for review after a previous rejection.",
+        contact_line=f"Farm: {horse.farm_name}",
+        horse=horse,
+    )
+
+
+@_safe
+def send_horse_resubmission_receipt(horse) -> None:
+    """#8b Farmer resubmits a previously-rejected horse -> also confirm it to the farmer."""
+    _send_horse_email(
+        to=horse.farm.owner.email,
+        subject=f"Your horse has been resubmitted for review: {horse.name}",
+        status_key="pending",
+        heading="Your horse has been resubmitted for review",
+        intro=f"{horse.name} has been resubmitted and is now awaiting admin review.",
+        contact_line=f"Farm: {horse.farm_name}",
+        note="You'll be notified once a decision has been made. The horse's profile is locked until then.",
+        horse=horse,
+    )
+
+
+@_safe
+def send_horse_approved(horse) -> None:
+    """#9a Admin approves a horse -> notify the farmer."""
+    _send_horse_email(
+        to=horse.farm.owner.email,
+        subject=f"Your horse has been approved: {horse.name}",
+        status_key="approved",
+        heading="Your horse has been approved!",
+        intro=f"{horse.name} has been approved and is now visible on {BRAND_NAME}.",
+        contact_line=f"Farm: {horse.farm_name}",
+        horse=horse,
+    )
+
+
+@_safe
+def send_horse_approved_receipt(horse, admin_email: str) -> None:
+    """#9b Admin approves a horse -> also confirm it to the admin who approved it."""
+    _send_horse_email(
+        to=admin_email,
+        subject=f"You approved a horse: {horse.name}",
+        status_key="approved",
+        heading="You approved a horse",
+        intro=f"You approved {horse.name} from {horse.farm_name}.",
+        contact_line=f"Farm: {horse.farm_name}",
+        horse=horse,
+    )
+
+
+@_safe
+def send_horse_rejected(horse) -> None:
+    """#10a Admin rejects a horse -> notify the farmer."""
+    _send_horse_email(
+        to=horse.farm.owner.email,
+        subject=f"Your horse was rejected: {horse.name}",
+        status_key="rejected",
+        heading="Your horse was rejected",
+        intro=f"{horse.name} was not approved.",
+        contact_line=f"Farm: {horse.farm_name}",
+        note="You can make changes and resubmit it for review at any time.",
+        reason=horse.rejection_reason,
+        horse=horse,
+    )
+
+
+@_safe
+def send_horse_rejected_receipt(horse, admin_email: str) -> None:
+    """#10b Admin rejects a horse -> also confirm it to the admin who rejected it."""
+    _send_horse_email(
+        to=admin_email,
+        subject=f"You rejected a horse: {horse.name}",
+        status_key="rejected",
+        heading="You rejected a horse",
+        intro=f"You rejected {horse.name} from {horse.farm_name}.",
+        contact_line=f"Farm: {horse.farm_name}",
+        reason=horse.rejection_reason,
+        horse=horse,
     )
 
 

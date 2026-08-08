@@ -1,9 +1,19 @@
 from pydantic import BaseModel, field_validator
 from typing import Optional, List, Literal
-from datetime import date
+from datetime import date, datetime
 
 from core.availability import PERIOD_KEYS, default_horse_periods, normalize_periods
 from schemas.farms import FarmAvailability
+
+DOCUMENT_TYPES = {"passport", "registration", "ownership_transfer"}
+
+# Fields a horse must have filled in before it can be submitted for review.
+# "name" is excluded — HorseCreate already requires it, so it can never be
+# missing. Mirrors the frontend's own submit-button validation.
+REQUIRED_FIELDS = [
+    "color", "gender", "date_of_birth",
+    "sire", "dam", "sires_sire", "sires_dam", "dams_sire", "dams_dam",
+]
 
 
 class HorseCreate(BaseModel):
@@ -85,6 +95,17 @@ class ImageReorderRequest(BaseModel):
     image_ids: List[int]
 
 
+class HorseDocumentResponse(BaseModel):
+    id: int
+    document_type: str
+    file_url: str
+    original_filename: Optional[str] = None
+    uploaded_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class HorseModerationUpdate(BaseModel):
     status: Literal["approved", "rejected"]
     # Required when status == "rejected", validated in the route (same
@@ -140,3 +161,10 @@ class HorseResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class HorseWithDocumentsResponse(HorseResponse):
+    # Ownership/identity documents. Not on the base HorseResponse — those are
+    # private and must never appear on the public horse endpoints. Only used
+    # for the owning farmer's own view and the admin review queue.
+    documents: List[HorseDocumentResponse] = []

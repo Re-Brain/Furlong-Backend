@@ -67,12 +67,15 @@ class Horse(Base):
     # order). NULL means "unset" -> defaults to all three; [] means not available.
     periods = Column(JSONB, nullable=True)
     # Admin moderation gate: only "approved" horses are shown on public listings.
-    status = Column(String, nullable=False, default="pending")  # pending | approved | rejected
+    # draft = farmer still assembling it (fully editable, invisible to admin/public)
+    # pending = submitted, frozen, awaiting an admin decision
+    status = Column(String, nullable=False, default="draft")  # draft | pending | approved | rejected
     # Admin's explanation when rejecting the horse. Optional everywhere else.
     rejection_reason = Column(Text, nullable=True)
     farm_id = Column(Integer, ForeignKey("farms.id", ondelete="CASCADE"), nullable=False)
     farm = relationship("Farm", back_populates="horses")
     images = relationship("HorseImage", back_populates="horse", cascade="all, delete-orphan", order_by="HorseImage.position")
+    documents = relationship("HorseDocument", back_populates="horse", cascade="all, delete-orphan", order_by="HorseDocument.uploaded_at")
     race_records = relationship("RaceRecord", back_populates="horse", cascade="all, delete-orphan")
 
     @property
@@ -116,6 +119,24 @@ class HorseImage(Base):
 
     horse_id = Column(Integer, ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
     horse = relationship("Horse", back_populates="images")
+
+
+class HorseDocument(Base):
+    __tablename__ = "horse_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_type = Column(String, nullable=False)  # passport | registration | ownership_transfer
+    file_url = Column(String, nullable=False)
+    public_id = Column(String, nullable=False)
+    # The Cloudinary resource_type the upload actually landed in (image | raw |
+    # video, since these are uploaded with resource_type="auto"). Required to
+    # correctly delete the asset later — destroy() needs the matching type.
+    resource_type = Column(String, nullable=False)
+    original_filename = Column(String, nullable=True)
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    horse_id = Column(Integer, ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    horse = relationship("Horse", back_populates="documents")
 
 
 class FarmImage(Base):

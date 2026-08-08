@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 import models.models as models
 from database import get_db
 from core.auth import decode_token
+from core import email
 import schemas.farms as farm_schemas
 import schemas.horses as horse_schemas
 
@@ -69,13 +70,15 @@ def update_farm_status(
     return farm
 
 
-@router.get("/horses", response_model=list[horse_schemas.HorseResponse])
+@router.get("/horses", response_model=list[horse_schemas.HorseWithDocumentsResponse])
 def get_admin_horses(
     status: Optional[str] = Query(None, description="Filter by status: pending | approved | rejected"),
     current_user: models.User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    query = db.query(models.Horse)
+    # Drafts are still being assembled by the farmer — never submitted, so
+    # never part of the review queue, regardless of the status filter.
+    query = db.query(models.Horse).filter(models.Horse.status != "draft")
 
     if status is not None:
         if status not in HORSE_STATUSES:
@@ -88,7 +91,7 @@ def get_admin_horses(
     return query.all()
 
 
-@router.patch("/horses/{horse_id}", response_model=horse_schemas.HorseResponse)
+@router.patch("/horses/{horse_id}", response_model=horse_schemas.HorseWithDocumentsResponse)
 def update_horse_status(
     horse_id: int,
     data: horse_schemas.HorseModerationUpdate,
@@ -102,9 +105,26 @@ def update_horse_status(
     if data.status == "rejected" and _reason_missing(data.reason):
         raise HTTPException(status_code=422, detail="A reason is required when rejecting a horse")
 
+    if data.status == "approved":
+        uploaded_types = {doc.document_type for doc in horse.documents}
+        missing = horse_schemas.DOCUMENT_TYPES - uploaded_types
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Missing required documents: {', '.join(sorted(missing))}",
+            )
+
     horse.status = data.status
     horse.rejection_reason = data.reason if data.status == "rejected" else None
 
     db.commit()
     db.refresh(horse)
+
+    if data.status == "approved":
+        email.send_horse_approved(horse)
+        email.send_horse_approved_receipt(horse, current_user.email)
+    else:
+        email.send_horse_rejected(horse)
+        email.send_horse_rejected_receipt(horse, current_user.email)
+
     return horse
