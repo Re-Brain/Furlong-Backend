@@ -33,6 +33,12 @@ class Farm(Base):
     # back to default_farm_availability(). Shape matches the FarmAvailability schema.
     availability = Column(JSONB, nullable=True)
 
+    # Stripe Connect account for this farm, created via /farms/me/stripe/onboard.
+    # NULL until the farmer starts onboarding.
+    stripe_account_id = Column(String, nullable=True)
+    # Kept in sync from the account.updated webhook.
+    payouts_enabled = Column(Boolean, nullable=False, default=False)
+
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     owner = relationship("User", back_populates="farm", passive_deletes=True)
 
@@ -160,3 +166,33 @@ class Booking(Base):
     @property
     def farm_name(self):
         return self.farm.name if self.farm else None
+
+
+class Donation(Base):
+    __tablename__ = "donations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    farm_id = Column(Integer, ForeignKey("farms.id", ondelete="CASCADE"), nullable=False)
+    # Null when the donor wasn't logged in at checkout.
+    visitor_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    amount = Column(Integer, nullable=False)                    # smallest currency unit, total charged
+    application_fee_amount = Column(Integer, nullable=False)    # smallest currency unit, platform's 20% cut
+    currency = Column(String, nullable=False, default="jpy")
+
+    # Recorded once, from the checkout.session.completed webhook.
+    stripe_checkout_session_id = Column(String, unique=True, nullable=False, index=True)
+    stripe_payment_intent_id = Column(String, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    farm = relationship("Farm")
+    visitor = relationship("User")
+
+    @property
+    def farm_name(self):
+        return self.farm.name if self.farm else None
+
+    @property
+    def visitor_name(self):
+        return self.visitor.name if self.visitor else None

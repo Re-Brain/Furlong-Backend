@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+import stripe
 import models.models as models
 from database import get_db
 from core.auth import decode_token
 from core.cloudinary import upload_image, delete_image
 from core.availability import default_farm_availability
+from core.stripe_client import FRONTEND_URL
 import schemas.farms as farm_schemas
 
 router = APIRouter()
@@ -74,6 +76,61 @@ def update_my_farm_availability(
     db.commit()
     db.refresh(farm)
     return farm.availability
+
+
+@router.get("/farms/me/stripe/status", response_model=farm_schemas.StripeStatusResponse)
+def get_my_farm_stripe_status(
+    current_user: models.User = Depends(get_current_farmer),
+    db: Session = Depends(get_db),
+):
+    farm = db.query(models.Farm).filter(models.Farm.owner_id == current_user.id).first()
+    if not farm:
+        raise HTTPException(status_code=404, detail="Farm not found")
+    return {
+        "connected": farm.stripe_account_id is not None,
+        "payouts_enabled": farm.payouts_enabled,
+    }
+
+
+@router.post("/farms/me/stripe/onboard", response_model=farm_schemas.StripeOnboardResponse)
+def onboard_my_farm_stripe(
+    current_user: models.User = Depends(get_current_farmer),
+    db: Session = Depends(get_db),
+):
+    farm = db.query(models.Farm).filter(models.Farm.owner_id == current_user.id).first()
+    if not farm:
+        raise HTTPException(status_code=404, detail="Farm not found")
+
+    if not farm.stripe_account_id:
+        # Express dashboards require the platform to be loss-liable (Stripe: "the Connect
+        # application must control losses"), which Thailand-registered platforms are blocked
+        # from doing. "full" is the dashboard type that stays self-liable (farm's own account
+        # bears its own losses) while still giving the farmer real Stripe Dashboard access.
+        account = stripe.Account.create(
+            country="TH",
+            controller={
+                "fees": {"payer": "account"},
+                "losses": {"payments": "stripe"},
+                "stripe_dashboard": {"type": "full"},
+            },
+            capabilities={
+                "card_payments": {"requested": True},
+                "promptpay_payments": {"requested": True},
+                "transfers": {"requested": True},
+            },
+        )
+        farm.stripe_account_id = account.id
+        db.commit()
+        db.refresh(farm)
+
+    account_link = stripe.AccountLink.create(
+        account=farm.stripe_account_id,
+        refresh_url=f"{FRONTEND_URL}/farm/stripe/refresh",
+        return_url=f"{FRONTEND_URL}/farm/stripe/return",
+        type="account_onboarding",
+    )
+
+    return {"onboarding_url": account_link.url}
 
 
 @router.post("/farms/me/image", response_model=farm_schemas.FarmResponse)

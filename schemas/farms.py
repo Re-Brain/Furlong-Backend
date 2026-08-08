@@ -72,6 +72,15 @@ class FarmAvailability(BaseModel):
         return self
 
 
+class StripeStatusResponse(BaseModel):
+    connected: bool
+    payouts_enabled: bool
+
+
+class StripeOnboardResponse(BaseModel):
+    onboarding_url: str
+
+
 class FarmResponse(BaseModel):
     id: int
     name: str
@@ -80,6 +89,7 @@ class FarmResponse(BaseModel):
     capacity: Optional[int] = None
     status: str
     owner_id: int
+    payouts_enabled: bool
     images: List[FarmImageResponse] = []
 
     class Config:
