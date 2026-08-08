@@ -43,8 +43,6 @@ def update_my_farm(
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(farm, field, value)
 
-    farm.status = "active" if all([farm.location, farm.description, farm.capacity]) else "pending"
-
     db.commit()
     db.refresh(farm)
     return farm

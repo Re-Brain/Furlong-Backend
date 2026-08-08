@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional, List
+from typing import Optional, List, Literal
 
 from core.availability import DEFAULT_MIN_LEAD_DAYS, PERIOD_KEYS, PERIOD_WINDOWS, to_minutes
 
@@ -72,6 +72,13 @@ class FarmAvailability(BaseModel):
         return self
 
 
+class FarmModerationUpdate(BaseModel):
+    status: Literal["active", "rejected"]
+    # Required when status == "rejected", validated in the route (same
+    # pattern as PATCH /bookings/{id} for confirmed/declined).
+    reason: Optional[str] = None
+
+
 class StripeStatusResponse(BaseModel):
     connected: bool
     payouts_enabled: bool
@@ -88,6 +95,7 @@ class FarmResponse(BaseModel):
     description: Optional[str] = None
     capacity: Optional[int] = None
     status: str
+    rejection_reason: Optional[str] = None
     owner_id: int
     payouts_enabled: bool
     images: List[FarmImageResponse] = []

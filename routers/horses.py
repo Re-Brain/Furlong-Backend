@@ -19,7 +19,7 @@ def get_farmer_farm(current_user: models.User = Depends(get_current_farmer), db:
 
 @router.get("/horses", response_model=list[horse_schemas.HorseResponse])
 def get_all_horses(db: Session = Depends(get_db)):
-    return db.query(models.Horse).all()
+    return db.query(models.Horse).filter(models.Horse.status == "approved").all()
 
 
 @router.get("/horses/me", response_model=list[horse_schemas.HorseResponse])
@@ -42,7 +42,9 @@ def create_horse(
 
 @router.get("/horses/{horse_id}", response_model=horse_schemas.HorseResponse)
 def get_horse(horse_id: int, db: Session = Depends(get_db)):
-    horse = db.query(models.Horse).filter(models.Horse.id == horse_id).first()
+    horse = db.query(models.Horse).filter(
+        models.Horse.id == horse_id, models.Horse.status == "approved"
+    ).first()
     if not horse:
         raise HTTPException(status_code=404, detail="Horse not found")
     return horse

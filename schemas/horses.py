@@ -1,5 +1,5 @@
 from pydantic import BaseModel, field_validator
-from typing import Optional, List
+from typing import Optional, List, Literal
 from datetime import date
 
 from core.availability import PERIOD_KEYS, default_horse_periods, normalize_periods
@@ -85,6 +85,13 @@ class ImageReorderRequest(BaseModel):
     image_ids: List[int]
 
 
+class HorseModerationUpdate(BaseModel):
+    status: Literal["approved", "rejected"]
+    # Required when status == "rejected", validated in the route (same
+    # pattern as PATCH /bookings/{id} for confirmed/declined).
+    reason: Optional[str] = None
+
+
 class HorsePeriodsUpdate(BaseModel):
     periods: List[str]
 
@@ -114,6 +121,9 @@ class HorseResponse(BaseModel):
     dams_sire: Optional[str] = None
     dams_dam: Optional[str] = None
     farm_id: int
+    farm_name: Optional[str] = None
+    status: str
+    rejection_reason: Optional[str] = None
     images: List[HorseImageResponse] = []
     race_records: List[RaceRecordResponse] = []
     # Visit periods this horse opts into. Defaults to all three when unset (NULL).

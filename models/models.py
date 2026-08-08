@@ -27,7 +27,9 @@ class Farm(Base):
     location = Column(String, nullable=True)
     description = Column(Text, nullable=True)
     capacity = Column(Integer, nullable=True)
-    status = Column(String, default="pending")  # pending | active
+    status = Column(String, default="pending")  # pending | active | rejected
+    # Admin's explanation when rejecting the farm. Optional everywhere else.
+    rejection_reason = Column(Text, nullable=True)
 
     # Visit availability schedule. NULL means "never configured" -> callers fall
     # back to default_farm_availability(). Shape matches the FarmAvailability schema.
@@ -64,10 +66,18 @@ class Horse(Base):
     # Which visit periods this horse participates in (subset of PERIOD_KEYS, canonical
     # order). NULL means "unset" -> defaults to all three; [] means not available.
     periods = Column(JSONB, nullable=True)
+    # Admin moderation gate: only "approved" horses are shown on public listings.
+    status = Column(String, nullable=False, default="pending")  # pending | approved | rejected
+    # Admin's explanation when rejecting the horse. Optional everywhere else.
+    rejection_reason = Column(Text, nullable=True)
     farm_id = Column(Integer, ForeignKey("farms.id", ondelete="CASCADE"), nullable=False)
     farm = relationship("Farm", back_populates="horses")
     images = relationship("HorseImage", back_populates="horse", cascade="all, delete-orphan", order_by="HorseImage.position")
     race_records = relationship("RaceRecord", back_populates="horse", cascade="all, delete-orphan")
+
+    @property
+    def farm_name(self):
+        return self.farm.name if self.farm else None
 
     @property
     def farm_availability(self) -> dict:

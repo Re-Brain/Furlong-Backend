@@ -1,4 +1,4 @@
-from routers import auth, horses, farms, bookings, donations
+from routers import auth, horses, farms, bookings, donations, admin
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -28,6 +28,7 @@ app.include_router(horses.router)
 app.include_router(farms.router)
 app.include_router(bookings.router)
 app.include_router(donations.router)
+app.include_router(admin.router)
 
 @app.get("/")
 def read_root():
