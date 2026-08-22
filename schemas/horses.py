@@ -1,9 +1,19 @@
-from pydantic import BaseModel, field_validator
-from typing import Optional, List
-from datetime import date
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, List, Literal
+from datetime import date, datetime
 
-from core.availability import PERIOD_KEYS, default_horse_periods, normalize_periods
+from core.availability import default_horse_periods
 from schemas.farms import FarmAvailability
+
+DOCUMENT_TYPES = {"passport", "registration", "ownership_transfer"}
+
+# Fields a horse must have filled in before it can be submitted for review.
+# "name" is excluded — HorseCreate already requires it, so it can never be
+# missing. Mirrors the frontend's own submit-button validation.
+REQUIRED_FIELDS = [
+    "color", "gender", "date_of_birth",
+    "sire", "dam", "sires_sire", "sires_dam", "dams_sire", "dams_dam",
+]
 
 
 class HorseCreate(BaseModel):
@@ -85,19 +95,34 @@ class ImageReorderRequest(BaseModel):
     image_ids: List[int]
 
 
-class HorsePeriodsUpdate(BaseModel):
-    periods: List[str]
+class HorseDocumentResponse(BaseModel):
+    id: int
+    document_type: str
+    file_url: str
+    original_filename: Optional[str] = None
+    uploaded_at: datetime
 
-    @field_validator("periods")
-    @classmethod
-    def validate_periods(cls, v: List[str]) -> List[str]:
-        invalid = [p for p in v if p not in PERIOD_KEYS]
-        if invalid:
-            raise ValueError(
-                f"periods must be a subset of {PERIOD_KEYS}; got invalid values {invalid}"
-            )
-        # Dedupe and reorder into canonical order.
-        return normalize_periods(v)
+    class Config:
+        from_attributes = True
+
+
+class HorseModerationUpdate(BaseModel):
+    status: Literal["approved", "rejected"]
+    # Required when status == "rejected", validated in the route (same
+    # pattern as PATCH /bookings/{id} for confirmed/declined).
+    reason: Optional[str] = None
+
+
+class HorsePeriodsCapacity(BaseModel):
+    # Always exactly these three keys. Value = max visitors allowed in that
+    # period; 0 means the horse isn't offered in that period.
+    morning: int = Field(ge=0)
+    afternoon: int = Field(ge=0)
+    evening: int = Field(ge=0)
+
+
+class HorsePeriodsUpdate(BaseModel):
+    periods: HorsePeriodsCapacity
 
 
 class HorseResponse(BaseModel):
@@ -114,19 +139,30 @@ class HorseResponse(BaseModel):
     dams_sire: Optional[str] = None
     dams_dam: Optional[str] = None
     farm_id: int
+    farm_name: Optional[str] = None
+    status: str
+    rejection_reason: Optional[str] = None
     images: List[HorseImageResponse] = []
     race_records: List[RaceRecordResponse] = []
-    # Visit periods this horse opts into. Defaults to all three when unset (NULL).
-    periods: List[str] = []
+    # Max visitors per period. Defaults to 1 in every period when unset (NULL);
+    # 0 means the horse isn't offered in that period.
+    periods: HorsePeriodsCapacity
     # Owning farm's full availability object (resolved to default when unconfigured).
     farm_availability: FarmAvailability
 
     @field_validator("periods", mode="before")
     @classmethod
-    def resolve_periods(cls, v) -> List[str]:
+    def resolve_periods(cls, v):
         if v is None:
             return default_horse_periods()
-        return normalize_periods(v)
+        return v
 
     class Config:
         from_attributes = True
+
+
+class HorseWithDocumentsResponse(HorseResponse):
+    # Ownership/identity documents. Not on the base HorseResponse — those are
+    # private and must never appear on the public horse endpoints. Only used
+    # for the owning farmer's own view and the admin review queue.
+    documents: List[HorseDocumentResponse] = []

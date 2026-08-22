@@ -42,6 +42,9 @@ def create_donation_checkout_session(
     visitor: Optional[models.User] = Depends(get_optional_visitor),
     db: Session = Depends(get_db),
 ):
+    if visitor and visitor.role in ("farmer", "admin"):
+        raise HTTPException(status_code=403, detail="Farmer and admin accounts can't make donations.")
+
     farm = db.query(models.Farm).filter(models.Farm.id == data.farm_id).first()
     if not farm:
         raise HTTPException(status_code=404, detail="Farm not found")

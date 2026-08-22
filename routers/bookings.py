@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from datetime import date as date_cls, timedelta
 from typing import Optional
@@ -68,7 +69,16 @@ def create_booking(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    horse = db.query(models.Horse).filter(models.Horse.id == data.horse_id).first()
+    # Locked for the rest of this transaction: the capacity check-and-insert
+    # below must be atomic, so a second request for the same horse blocks here
+    # until the first one commits (or rolls back), instead of both reading the
+    # same "remaining capacity" and overbooking the slot.
+    horse = (
+        db.query(models.Horse)
+        .filter(models.Horse.id == data.horse_id)
+        .with_for_update()
+        .first()
+    )
     if not horse:
         raise HTTPException(status_code=404, detail="Horse not found")
 
@@ -99,11 +109,9 @@ def create_booking(
         raise HTTPException(status_code=409, detail=f"The {data.period} period is not open at this farm")
 
     horse_periods = horse.periods if horse.periods is not None else default_horse_periods()
-    if data.period not in horse_periods:
+    capacity = horse_periods.get(data.period, 0)
+    if capacity <= 0:
         raise HTTPException(status_code=409, detail=f"This horse is not available in the {data.period} period")
-
-    if farm.capacity is not None and data.party_size > farm.capacity:
-        raise HTTPException(status_code=422, detail=f"Party size exceeds the farm capacity of {farm.capacity}")
 
     # Reject an exact duplicate so a double-submit doesn't create two rows.
     duplicate = db.query(models.Booking).filter(
@@ -119,6 +127,18 @@ def create_booking(
             detail="You already have a booking for this horse on this date and period",
         )
 
+    # Live bookings (pending or confirmed) still hold their spot; only
+    # declined/cancelled bookings free up capacity. The horse row lock taken
+    # above makes this sum-then-insert atomic against concurrent requests.
+    existing_party_size = db.query(func.coalesce(func.sum(models.Booking.party_size), 0)).filter(
+        models.Booking.horse_id == horse.id,
+        models.Booking.date == data.date,
+        models.Booking.period == data.period,
+        models.Booking.status.in_(("pending", "confirmed")),
+    ).scalar()
+    if existing_party_size + data.party_size > capacity:
+        raise HTTPException(status_code=409, detail="This slot is full.")
+
     booking = models.Booking(
         horse_id=horse.id,
         farm_id=horse.farm_id,
@@ -130,13 +150,13 @@ def create_booking(
         end=period_cfg["end"],
         party_size=data.party_size,
         note=data.note or "",
-        status="pending",
+        status="confirmed",
     )
     db.add(booking)
     db.commit()
     db.refresh(booking)
-    email.send_new_booking_request(booking)
-    email.send_new_booking_confirmation(booking)
+    email.send_booking_confirmed(booking)
+    email.send_booking_confirmed_receipt(booking)
     return booking
 
 

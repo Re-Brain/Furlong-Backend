@@ -15,6 +15,7 @@ class User(Base):
     phone_code = Column(String, nullable=True)
     phone_number = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
+    email_verified = Column(Boolean, nullable=False, default=False)
 
     farm = relationship("Farm", back_populates="owner", uselist=False, cascade="all, delete-orphan")
 
@@ -26,8 +27,11 @@ class Farm(Base):
     name = Column(String, nullable=False)
     location = Column(String, nullable=True)
     description = Column(Text, nullable=True)
-    capacity = Column(Integer, nullable=True)
-    status = Column(String, default="pending")  # pending | active
+    # draft = farmer still assembling it (fully editable, invisible to admin/public)
+    # pending = submitted, frozen, awaiting an admin decision
+    status = Column(String, default="draft")  # draft | pending | active | rejected
+    # Admin's explanation when rejecting the farm. Optional everywhere else.
+    rejection_reason = Column(Text, nullable=True)
 
     # Visit availability schedule. NULL means "never configured" -> callers fall
     # back to default_farm_availability(). Shape matches the FarmAvailability schema.
@@ -44,6 +48,7 @@ class Farm(Base):
 
     horses = relationship("Horse", back_populates="farm", cascade="all, delete-orphan")
     images = relationship("FarmImage", back_populates="farm", cascade="all, delete-orphan", order_by="FarmImage.position")
+    documents = relationship("FarmDocument", back_populates="farm", cascade="all, delete-orphan", order_by="FarmDocument.uploaded_at")
 
 
 class Horse(Base):
@@ -61,13 +66,25 @@ class Horse(Base):
     sires_dam = Column(String, nullable=True)    # paternal grandmother
     dams_sire = Column(String, nullable=True)    # maternal grandfather
     dams_dam = Column(String, nullable=True)     # maternal grandmother
-    # Which visit periods this horse participates in (subset of PERIOD_KEYS, canonical
-    # order). NULL means "unset" -> defaults to all three; [] means not available.
+    # Max visitors per period: {"morning": int, "afternoon": int, "evening": int}.
+    # 0 means the horse isn't offered in that period. NULL means "unset" -> defaults
+    # to 1 in every period (see core.availability.default_horse_periods).
     periods = Column(JSONB, nullable=True)
+    # Admin moderation gate: only "approved" horses are shown on public listings.
+    # draft = farmer still assembling it (fully editable, invisible to admin/public)
+    # pending = submitted, frozen, awaiting an admin decision
+    status = Column(String, nullable=False, default="draft")  # draft | pending | approved | rejected
+    # Admin's explanation when rejecting the horse. Optional everywhere else.
+    rejection_reason = Column(Text, nullable=True)
     farm_id = Column(Integer, ForeignKey("farms.id", ondelete="CASCADE"), nullable=False)
     farm = relationship("Farm", back_populates="horses")
     images = relationship("HorseImage", back_populates="horse", cascade="all, delete-orphan", order_by="HorseImage.position")
+    documents = relationship("HorseDocument", back_populates="horse", cascade="all, delete-orphan", order_by="HorseDocument.uploaded_at")
     race_records = relationship("RaceRecord", back_populates="horse", cascade="all, delete-orphan")
+
+    @property
+    def farm_name(self):
+        return self.farm.name if self.farm else None
 
     @property
     def farm_availability(self) -> dict:
@@ -108,6 +125,24 @@ class HorseImage(Base):
     horse = relationship("Horse", back_populates="images")
 
 
+class HorseDocument(Base):
+    __tablename__ = "horse_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_type = Column(String, nullable=False)  # passport | registration | ownership_transfer
+    file_url = Column(String, nullable=False)
+    public_id = Column(String, nullable=False)
+    # The Cloudinary resource_type the upload actually landed in (image | raw |
+    # video, since these are uploaded with resource_type="auto"). Required to
+    # correctly delete the asset later — destroy() needs the matching type.
+    resource_type = Column(String, nullable=False)
+    original_filename = Column(String, nullable=True)
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    horse_id = Column(Integer, ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    horse = relationship("Horse", back_populates="documents")
+
+
 class FarmImage(Base):
     __tablename__ = "farm_images"
 
@@ -118,6 +153,24 @@ class FarmImage(Base):
 
     farm_id = Column(Integer, ForeignKey("farms.id", ondelete="CASCADE"), nullable=False)
     farm = relationship("Farm", back_populates="images")
+
+
+class FarmDocument(Base):
+    __tablename__ = "farm_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_type = Column(String, nullable=False)  # business_registration | insurance | facility_license
+    file_url = Column(String, nullable=False)
+    public_id = Column(String, nullable=False)
+    # The Cloudinary resource_type the upload actually landed in (image | raw |
+    # video, since these are uploaded with resource_type="auto"). Required to
+    # correctly delete the asset later — destroy() needs the matching type.
+    resource_type = Column(String, nullable=False)
+    original_filename = Column(String, nullable=True)
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    farm_id = Column(Integer, ForeignKey("farms.id", ondelete="CASCADE"), nullable=False)
+    farm = relationship("Farm", back_populates="documents")
 
 
 class Booking(Base):

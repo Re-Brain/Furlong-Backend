@@ -1,14 +1,19 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional, List
+from typing import Optional, List, Literal
+from datetime import datetime
 
 from core.availability import DEFAULT_MIN_LEAD_DAYS, PERIOD_KEYS, PERIOD_WINDOWS, to_minutes
+
+DOCUMENT_TYPES = {"business_registration", "insurance", "facility_license"}
+
+# Fields a farm must have filled in before it can be submitted for review.
+REQUIRED_FIELDS = ["location", "description"]
 
 
 class FarmUpdate(BaseModel):
     name: Optional[str] = None
     location: Optional[str] = None
     description: Optional[str] = None
-    capacity: Optional[int] = None
 
 
 class FarmImageResponse(BaseModel):
@@ -72,6 +77,24 @@ class FarmAvailability(BaseModel):
         return self
 
 
+class FarmDocumentResponse(BaseModel):
+    id: int
+    document_type: str
+    file_url: str
+    original_filename: Optional[str] = None
+    uploaded_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class FarmModerationUpdate(BaseModel):
+    status: Literal["active", "rejected"]
+    # Required when status == "rejected", validated in the route (same
+    # pattern as PATCH /bookings/{id} for confirmed/declined).
+    reason: Optional[str] = None
+
+
 class StripeStatusResponse(BaseModel):
     connected: bool
     payouts_enabled: bool
@@ -86,11 +109,18 @@ class FarmResponse(BaseModel):
     name: str
     location: Optional[str] = None
     description: Optional[str] = None
-    capacity: Optional[int] = None
     status: str
+    rejection_reason: Optional[str] = None
     owner_id: int
     payouts_enabled: bool
     images: List[FarmImageResponse] = []
 
     class Config:
         from_attributes = True
+
+
+class FarmWithDocumentsResponse(FarmResponse):
+    # Not on the base FarmResponse — those prove business identity and must
+    # never appear on public farm endpoints. Only used for the owning
+    # farmer's own view and the admin review queue.
+    documents: List[FarmDocumentResponse] = []

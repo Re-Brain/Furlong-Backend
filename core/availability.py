@@ -51,11 +51,9 @@ def default_farm_availability() -> dict:
     }
 
 
-def default_horse_periods() -> list:
-    """Fresh default horse periods: all three, canonical order."""
-    return list(PERIOD_KEYS)
+def default_horse_periods() -> dict:
+    """Fresh default horse period capacities: 1 seat in each of the three periods.
 
-
-def normalize_periods(values) -> list:
-    """Dedupe and reorder a list of period names into canonical order."""
-    return [k for k in PERIOD_KEYS if k in values]
+    Matches the pre-capacity behavior (an unset horse took part in all three).
+    """
+    return {key: 1 for key in PERIOD_KEYS}
