@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 import bcrypt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+import secrets
+from fastapi import Cookie, HTTPException, status
 import os
 from dotenv import load_dotenv
 
@@ -11,8 +11,11 @@ load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+ACCESS_COOKIE_NAME = "access_token"
+CSRF_COOKIE_NAME = "csrf_token"
+CSRF_HEADER_NAME = "X-CSRF-Token"
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -40,6 +43,10 @@ def create_access_token(data: dict) -> str:
     # JWT is NOT encrypted — it is SIGNED. Data is readable but cannot be tampered with.
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
+def create_csrf_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
 def create_email_verification_token(email: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(hours=24)
     # "purpose" stops this from doubling as a working access token if it
@@ -57,19 +64,21 @@ def decode_email_verification_token(token: str) -> str:
     return email
 
 
-def decode_token(token: str = Depends(oauth2_scheme)):
+def decode_token(access_token: str | None = Cookie(default=None)):
 
     # Create an exception to raise if token is invalid
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
     )
+
+    if access_token is None:
+        raise credentials_exception
 
     try:
 
         # Decode the token and extract the email (subject)
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(access_token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
         
         # If email is missing, the token is invalid

@@ -3,16 +3,19 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from database import engine, get_db
+from core.csrf import CSRFMiddleware
 import models.models as models
 import uvicorn
 
 app = FastAPI()
 
-# Add authentication for this branch
-
+# Order matters: CORS must be the outermost middleware so it can answer
+# preflight OPTIONS requests before they ever reach the CSRF check.
+app.add_middleware(CSRFMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

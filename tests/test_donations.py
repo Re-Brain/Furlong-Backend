@@ -41,9 +41,9 @@ def make_user(user_id, email, role):
     return SimpleNamespace(id=user_id, email=email, role=role)
 
 
-def auth_header(email: str) -> dict:
+def auth_cookies(email: str) -> dict:
     token = create_access_token({"sub": email})
-    return {"Authorization": f"Bearer {token}"}
+    return {"access_token": token}
 
 
 @pytest.fixture
@@ -81,7 +81,7 @@ def test_visitor_donor_allowed(client, fake_stripe_session):
     response = client.post(
         "/donations/checkout-session",
         json={"farm_id": 1, "amount": 1000},
-        headers=auth_header(user.email),
+        cookies=auth_cookies(user.email),
     )
 
     assert response.status_code == 200
@@ -96,7 +96,7 @@ def test_farmer_donor_forbidden(client, fake_stripe_session):
     response = client.post(
         "/donations/checkout-session",
         json={"farm_id": 1, "amount": 1000},
-        headers=auth_header(user.email),
+        cookies=auth_cookies(user.email),
     )
 
     assert response.status_code == 403
@@ -111,7 +111,7 @@ def test_admin_donor_forbidden(client, fake_stripe_session):
     response = client.post(
         "/donations/checkout-session",
         json={"farm_id": 1, "amount": 1000},
-        headers=auth_header(user.email),
+        cookies=auth_cookies(user.email),
     )
 
     assert response.status_code == 403
@@ -125,7 +125,7 @@ def test_invalid_token_falls_back_to_anonymous(client, fake_stripe_session):
     response = client.post(
         "/donations/checkout-session",
         json={"farm_id": 1, "amount": 1000},
-        headers={"Authorization": "Bearer not-a-real-token"},
+        cookies={"access_token": "not-a-real-token"},
     )
 
     assert response.status_code == 200

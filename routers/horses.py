@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import Literal, Optional
 import models.models as models
 from database import get_db
-from core.auth import SECRET_KEY, ALGORITHM
+from core.auth import SECRET_KEY, ALGORITHM, ACCESS_COOKIE_NAME
 from routers.farms import get_current_farmer
 from core.cloudinary import upload_image, delete_image, upload_document, delete_document
 from core import email
@@ -33,11 +33,11 @@ def _assert_editable(horse: models.Horse) -> None:
 
 def get_optional_user(request: Request, db: Session = Depends(get_db)) -> Optional[models.User]:
     """Like decode_token -> get_current_user, but the caller need not be logged in."""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.lower().startswith("bearer "):
+    token = request.cookies.get(ACCESS_COOKIE_NAME)
+    if not token:
         return None
     try:
-        payload = jwt.decode(auth_header.split(" ", 1)[1], SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
         return None
     email = payload.get("sub")

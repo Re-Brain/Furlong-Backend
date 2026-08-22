@@ -7,6 +7,8 @@ import models.models as models, schemas.auth as auth
 from core.auth import (
     hash_password, verify_password, create_access_token, decode_token,
     create_email_verification_token, decode_email_verification_token,
+    create_csrf_token, ACCESS_COOKIE_NAME, CSRF_COOKIE_NAME,
+    ACCESS_TOKEN_EXPIRE_MINUTES, DEBUG,
 )
 from core.cloudinary import delete_image
 from core import email
@@ -145,12 +147,12 @@ def delete_my_account(
     return Response(status_code=204)
 
 
-@router.post("/login", response_model=auth.Token)
-def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    
+@router.post("/login", response_model=auth.LoginResponse)
+def login(response: Response, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+
     # Find the user by email (username in form)
     user = db.query(models.User).filter(models.User.email == form.username).first()
-    
+
     # If user not found or password doesn't match, raise an error
     if not user or not verify_password(form.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -160,6 +162,27 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 
     # Create a token for the user
     token = create_access_token({"sub": user.email})
+    csrf_token = create_csrf_token()
+    max_age = ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
-    # token_type "bearer" = whoever holds this token is allowed in (like a concert ticket)
-    return {"access_token": token, "token_type": "bearer"}
+    # HttpOnly so JS can't read it (mitigates XSS token theft); the CSRF
+    # cookie is deliberately readable so the frontend can echo it back.
+    response.set_cookie(
+        ACCESS_COOKIE_NAME, token,
+        httponly=True, secure=not DEBUG, samesite="lax", path="/", max_age=max_age,
+    )
+    response.set_cookie(
+        CSRF_COOKIE_NAME, csrf_token,
+        httponly=False, secure=not DEBUG, samesite="lax", path="/", max_age=max_age,
+    )
+
+    return {"detail": "Login successful"}
+
+
+@router.post("/logout")
+def logout(response: Response):
+    # No auth dependency: must succeed even if the cookie is already
+    # expired/invalid/missing, so the client can always clear its session.
+    response.delete_cookie(ACCESS_COOKIE_NAME, path="/")
+    response.delete_cookie(CSRF_COOKIE_NAME, path="/")
+    return {"detail": "Logged out"}

@@ -5,7 +5,7 @@ from typing import Optional
 import stripe
 import models.models as models
 from database import get_db
-from core.auth import SECRET_KEY, ALGORITHM
+from core.auth import SECRET_KEY, ALGORITHM, ACCESS_COOKIE_NAME
 from core.stripe_client import CURRENCY, FRONTEND_URL, PLATFORM_FEE_PERCENT, STRIPE_WEBHOOK_SECRET
 from routers.farms import get_current_farmer
 import schemas.donations as donation_schemas
@@ -25,11 +25,11 @@ def get_current_farmer_farm(
 
 def get_optional_visitor(request: Request, db: Session = Depends(get_db)) -> Optional[models.User]:
     """Like decode_token -> get_current_user, but a donor need not be logged in."""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.lower().startswith("bearer "):
+    token = request.cookies.get(ACCESS_COOKIE_NAME)
+    if not token:
         return None
     try:
-        payload = jwt.decode(auth_header.split(" ", 1)[1], SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
         return None
     email = payload.get("sub")
