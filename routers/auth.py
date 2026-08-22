@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from jose import JWTError
+from jose import JWTError, jwt as jose_jwt
 from sqlalchemy.orm import Session
 from database import get_db
 import models.models as models, schemas.auth as auth
@@ -13,6 +13,7 @@ from core.auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, DEBUG,
 )
 from core.refresh_tokens import issue_refresh_token, rotate_refresh_token, revoke_token
+from core.rate_limit import check_strict_limit, record_attempt, reset as reset_rate_limit, STRICT_WINDOW_SECONDS
 from core.cloudinary import delete_image
 from core import email
 
@@ -28,7 +29,10 @@ def get_current_user(email: str = Depends(decode_token), db: Session = Depends(g
 # 1 - API Route
 # 2 - The shape of the response (schemas)
 @router.post("/register", response_model=auth.RegistrationResponse)
-def register(user: auth.VisitorRegister, db: Session = Depends(get_db)):
+def register(request: Request, user: auth.VisitorRegister, db: Session = Depends(get_db)):
+
+    rate_key = check_strict_limit(request, user.email, "register")
+    record_attempt(rate_key, STRICT_WINDOW_SECONDS)
 
     existing = db.query(models.User).filter(models.User.email == user.email).first()
     if existing:
@@ -59,7 +63,10 @@ def register(user: auth.VisitorRegister, db: Session = Depends(get_db)):
     }
 
 @router.post("/register/farmer", response_model=auth.RegistrationResponse)
-def register_farmer(data: auth.FarmerRegister, db: Session = Depends(get_db)):
+def register_farmer(request: Request, data: auth.FarmerRegister, db: Session = Depends(get_db)):
+
+    rate_key = check_strict_limit(request, data.email, "register")
+    record_attempt(rate_key, STRICT_WINDOW_SECONDS)
 
     existing = db.query(models.User).filter(models.User.email == data.email).first()
     if existing:
@@ -93,7 +100,18 @@ def register_farmer(data: auth.FarmerRegister, db: Session = Depends(get_db)):
 
 
 @router.post("/verify-email")
-def verify_email(data: auth.EmailVerification, db: Session = Depends(get_db)):
+def verify_email(request: Request, data: auth.EmailVerification, db: Session = Depends(get_db)):
+    # Best-effort only: reads the "sub" claim without verifying the
+    # signature, purely to have something to bucket the rate limit by. The
+    # real signature/expiry check still happens below via
+    # decode_email_verification_token -- this never affects trust.
+    try:
+        unverified_email = jose_jwt.get_unverified_claims(data.token).get("sub") or "unknown"
+    except JWTError:
+        unverified_email = "unknown"
+    rate_key = check_strict_limit(request, unverified_email, "verify-email")
+    record_attempt(rate_key, STRICT_WINDOW_SECONDS)
+
     try:
         user_email = decode_email_verification_token(data.token)
     except JWTError:
@@ -151,17 +169,26 @@ def delete_my_account(
 
 
 @router.post("/login", response_model=auth.LoginResponse)
-def login(response: Response, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(request: Request, response: Response, form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+
+    rate_key = check_strict_limit(request, form.username, "login")
 
     # Find the user by email (username in form)
     user = db.query(models.User).filter(models.User.email == form.username).first()
 
     # If user not found or password doesn't match, raise an error
     if not user or not verify_password(form.password, user.hashed_password):
+        record_attempt(rate_key, STRICT_WINDOW_SECONDS)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not user.email_verified:
+        # Correct password, just not verified yet -- not a guessing signal,
+        # so this doesn't count against the rate limit either way.
         raise HTTPException(status_code=403, detail="Please verify your email before logging in")
+
+    # A real login proves this (IP, email) pair is legitimate -- clear its
+    # failure count so it doesn't carry over into the next login attempt.
+    reset_rate_limit(rate_key)
 
     # Create a token for the user
     token = create_access_token({"sub": user.email})
