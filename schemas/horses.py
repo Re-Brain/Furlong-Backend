@@ -1,8 +1,8 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Literal
 from datetime import date, datetime
 
-from core.availability import PERIOD_KEYS, default_horse_periods, normalize_periods
+from core.availability import default_horse_periods
 from schemas.farms import FarmAvailability
 
 DOCUMENT_TYPES = {"passport", "registration", "ownership_transfer"}
@@ -113,19 +113,16 @@ class HorseModerationUpdate(BaseModel):
     reason: Optional[str] = None
 
 
-class HorsePeriodsUpdate(BaseModel):
-    periods: List[str]
+class HorsePeriodsCapacity(BaseModel):
+    # Always exactly these three keys. Value = max visitors allowed in that
+    # period; 0 means the horse isn't offered in that period.
+    morning: int = Field(ge=0)
+    afternoon: int = Field(ge=0)
+    evening: int = Field(ge=0)
 
-    @field_validator("periods")
-    @classmethod
-    def validate_periods(cls, v: List[str]) -> List[str]:
-        invalid = [p for p in v if p not in PERIOD_KEYS]
-        if invalid:
-            raise ValueError(
-                f"periods must be a subset of {PERIOD_KEYS}; got invalid values {invalid}"
-            )
-        # Dedupe and reorder into canonical order.
-        return normalize_periods(v)
+
+class HorsePeriodsUpdate(BaseModel):
+    periods: HorsePeriodsCapacity
 
 
 class HorseResponse(BaseModel):
@@ -147,17 +144,18 @@ class HorseResponse(BaseModel):
     rejection_reason: Optional[str] = None
     images: List[HorseImageResponse] = []
     race_records: List[RaceRecordResponse] = []
-    # Visit periods this horse opts into. Defaults to all three when unset (NULL).
-    periods: List[str] = []
+    # Max visitors per period. Defaults to 1 in every period when unset (NULL);
+    # 0 means the horse isn't offered in that period.
+    periods: HorsePeriodsCapacity
     # Owning farm's full availability object (resolved to default when unconfigured).
     farm_availability: FarmAvailability
 
     @field_validator("periods", mode="before")
     @classmethod
-    def resolve_periods(cls, v) -> List[str]:
+    def resolve_periods(cls, v):
         if v is None:
             return default_horse_periods()
-        return normalize_periods(v)
+        return v
 
     class Config:
         from_attributes = True

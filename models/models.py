@@ -66,8 +66,9 @@ class Horse(Base):
     sires_dam = Column(String, nullable=True)    # paternal grandmother
     dams_sire = Column(String, nullable=True)    # maternal grandfather
     dams_dam = Column(String, nullable=True)     # maternal grandmother
-    # Which visit periods this horse participates in (subset of PERIOD_KEYS, canonical
-    # order). NULL means "unset" -> defaults to all three; [] means not available.
+    # Max visitors per period: {"morning": int, "afternoon": int, "evening": int}.
+    # 0 means the horse isn't offered in that period. NULL means "unset" -> defaults
+    # to 1 in every period (see core.availability.default_horse_periods).
     periods = Column(JSONB, nullable=True)
     # Admin moderation gate: only "approved" horses are shown on public listings.
     # draft = farmer still assembling it (fully editable, invisible to admin/public)

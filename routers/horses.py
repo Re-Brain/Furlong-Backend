@@ -179,8 +179,8 @@ def update_horse_periods(
         raise HTTPException(status_code=403, detail="You do not own this horse")
     _assert_editable(horse)
 
-    # Already validated and normalized to canonical order by the schema.
-    horse.periods = data.periods
+    # Already validated (non-negative ints, exactly the three period keys) by the schema.
+    horse.periods = data.periods.model_dump()
     db.commit()
     db.refresh(horse)
     return horse
