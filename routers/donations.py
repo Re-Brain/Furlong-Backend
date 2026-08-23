@@ -103,6 +103,7 @@ def get_my_farm_donations(
             "id": d.id,
             "amount_yen": d.amount,
             "donor_name": d.visitor_name,
+            "donor_email": d.visitor_email,
             "created_at": d.created_at,
         }
         for d in donations

@@ -277,3 +277,7 @@ class Donation(Base):
     @property
     def visitor_name(self):
         return self.visitor.name if self.visitor else None
+
+    @property
+    def visitor_email(self):
+        return self.visitor.email if self.visitor else None
