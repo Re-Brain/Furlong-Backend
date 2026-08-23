@@ -12,9 +12,13 @@ from core.auth import (
     ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME, CSRF_COOKIE_NAME,
     ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, DEBUG,
 )
-from core.refresh_tokens import issue_refresh_token, rotate_refresh_token, revoke_token
+from core.refresh_tokens import issue_refresh_token, rotate_refresh_token, revoke_token, revoke_all_for_user
 from core.rate_limit import check_strict_limit, record_attempt, reset as reset_rate_limit, STRICT_WINDOW_SECONDS
 from core.cloudinary import delete_image
+from core.password_reset import (
+    issue_password_reset_token, get_valid_password_reset_token,
+    mark_password_reset_token_used, hash_token as hash_reset_token,
+)
 from core import email
 
 router = APIRouter()
@@ -128,6 +132,38 @@ def verify_email(request: Request, data: auth.EmailVerification, db: Session = D
     return {"detail": "Email verified successfully"}
 
 
+@router.post("/reset-password")
+def reset_password(request: Request, data: auth.PasswordResetConfirm, db: Session = Depends(get_db)):
+    # No auth cookie on this call, so keyed by IP + a hash of the token itself
+    # (never the raw token, which is a live credential) rather than by email.
+    rate_key = check_strict_limit(request, hash_reset_token(data.token), "reset-password")
+    record_attempt(rate_key, STRICT_WINDOW_SECONDS)
+
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=422, detail="New password must be at least 8 characters.")
+
+    token_row = get_valid_password_reset_token(db, data.token)
+    if token_row is None:
+        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired")
+
+    user = db.query(models.User).filter(models.User.id == token_row.user_id).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired")
+
+    user.hashed_password = hash_password(data.new_password)
+    # Only stamped now that the change actually succeeded -- a rejected
+    # (too-short) new_password above never touches token_row, so the same
+    # link still works on retry.
+    mark_password_reset_token_used(token_row)
+    db.commit()
+
+    # Credential-change event: force re-login everywhere, including the tab
+    # that requested the link.
+    revoke_all_for_user(db, user.id)
+
+    return {"detail": "Password has been reset"}
+
+
 @router.get("/me", response_model=auth.UserMe)
 def me(email: str = Depends(decode_token), db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == email).first()
@@ -151,6 +187,25 @@ def update_my_password(
     current_user.hashed_password = hash_password(data.new_password)
     db.commit()
     return {"detail": "Password updated"}
+
+
+@router.post("/me/password/reset-request")
+def request_password_reset(
+    request: Request,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Acts on the session's own user -- no email in the request body, so
+    # there's no enumeration signal to protect against here.
+    rate_key = check_strict_limit(request, current_user.email, "password-reset-request")
+    record_attempt(rate_key, STRICT_WINDOW_SECONDS)
+
+    raw_token = issue_password_reset_token(db, current_user.id)
+    email.send_password_reset_email(current_user, raw_token)
+
+    # Deliberately does not touch the current session -- only a completed
+    # reset (POST /reset-password) forces re-login everywhere.
+    return {"detail": "Password reset link sent"}
 
 
 @router.delete("/me", status_code=204)
