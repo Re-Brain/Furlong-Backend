@@ -40,6 +40,19 @@ def revoke_family(db: Session, family_id: str) -> None:
     db.commit()
 
 
+def revoke_all_for_user(db: Session, user_id: int) -> None:
+    """Kills every refresh-token family for this user, not just one -- used on a
+    credential-change event (password reset) that must force re-login everywhere,
+    including the session that requested the reset.
+    """
+    db.execute(
+        update(models.RefreshToken)
+        .where(models.RefreshToken.user_id == user_id, models.RefreshToken.revoked.is_(False))
+        .values(revoked=True)
+    )
+    db.commit()
+
+
 def rotate_refresh_token(db: Session, raw_token: str) -> models.RefreshToken | None:
     """Atomically claims raw_token for this request. Returns the claimed row on
     success, or None if it was invalid/expired/already used.

@@ -236,6 +236,19 @@ class RefreshToken(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False)
 
 
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash = Column(String, nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    # NULL until the password is actually changed with this token -- stays NULL
+    # through a rejected (bad-password) submission so the link keeps working.
+    used_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class Donation(Base):
     __tablename__ = "donations"
 
@@ -264,3 +277,7 @@ class Donation(Base):
     @property
     def visitor_name(self):
         return self.visitor.name if self.visitor else None
+
+    @property
+    def visitor_email(self):
+        return self.visitor.email if self.visitor else None

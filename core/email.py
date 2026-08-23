@@ -293,6 +293,72 @@ def send_verification_email(user, token: str) -> None:
     )
 
 
+def _render_password_reset_email(name: str, reset_url: str) -> str:
+    # Same call-to-action shape as _render_verification_email, different copy
+    # and a shorter expiry note (this link grants a credential change).
+    return f"""\
+<body style="margin:0;padding:0;background-color:{COLORS['page_bg']};">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:{COLORS['page_bg']};padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:{COLORS['card_bg']};border-radius:12px;border:1px solid {COLORS['border']};overflow:hidden;">
+        <tr>
+          <td align="center" style="background-color:{COLORS['header_bg']};padding:24px 28px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto;"><tr>
+              <td style="vertical-align:middle;padding-right:14px;"><img src="{LOGO_URL}" width="48" height="48" alt="" style="display:block;border:0;" /></td>
+              <td style="vertical-align:middle;"><span style="font-family:Georgia,'Times New Roman',serif;color:#FFFFFF;font-size:30px;font-weight:bold;letter-spacing:0.3px;">{BRAND_NAME}</span></td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px;">
+            <h1 style="font-family:Georgia,'Times New Roman',serif;color:{COLORS['header_bg']};font-size:21px;margin:0 0 8px;">Reset your password</h1>
+            <p style="font-family:Arial,Helvetica,sans-serif;color:{COLORS['text']};font-size:14px;line-height:1.6;margin:0 0 20px;">Hi {name}, we received a request to reset your {BRAND_NAME} password. Click below to choose a new one.</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px;"><tr>
+              <td style="background-color:{COLORS['header_bg']};border-radius:8px;">
+                <a href="{reset_url}" style="display:inline-block;padding:12px 24px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;color:#FFFFFF;text-decoration:none;">Reset Password</a>
+              </td>
+            </tr></table>
+            <p style="font-family:Arial,Helvetica,sans-serif;color:{COLORS['muted']};font-size:12px;line-height:1.6;margin:0 0 8px;word-break:break-all;">Or paste this link into your browser: {reset_url}</p>
+            <p style="font-family:Arial,Helvetica,sans-serif;color:{COLORS['muted']};font-size:12px;margin:0;">This link expires in 20 minutes. If you didn't request this, you can safely ignore this email.</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:{COLORS['row_bg']};border-top:1px solid {COLORS['border']};padding:14px 28px;">
+            <p style="font-family:Arial,Helvetica,sans-serif;color:{COLORS['muted']};font-size:11px;margin:0;">This is an automated message from {BRAND_NAME}. Please don't reply directly to this email.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>"""
+
+
+def _send_password_reset_email(to: str, subject: str, name: str, reset_url: str) -> None:
+    if EMAIL_OVERRIDE_TO:
+        subject = f"[to: {to}] {subject}"
+        to = EMAIL_OVERRIDE_TO
+
+    html = _render_password_reset_email(name, reset_url)
+    resend.Emails.send({
+        "from": EMAIL_FROM,
+        "to": [to],
+        "subject": subject,
+        "html": html,
+    })
+
+
+@_safe
+def send_password_reset_email(user, token: str) -> None:
+    """Password-reset request -> send the user a link to choose a new password."""
+    reset_url = f"{FRONTEND_URL}/reset-password?token={token}"
+    _send_password_reset_email(
+        to=user.email,
+        subject="Reset your password",
+        name=user.name,
+        reset_url=reset_url,
+    )
+
+
 @_safe
 def send_new_booking_request(booking) -> None:
     """#1a Visitor creates a booking -> notify the farmer."""

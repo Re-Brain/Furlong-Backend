@@ -16,6 +16,7 @@ class FarmDonationResponse(BaseModel):
     id: int
     amount_yen: int
     donor_name: Optional[str] = None
+    donor_email: Optional[str] = None
     created_at: datetime
 
 
