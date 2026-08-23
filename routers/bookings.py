@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from datetime import date as date_cls, timedelta
@@ -8,6 +8,7 @@ from database import get_db
 from routers.auth import get_current_user
 from routers.farms import get_current_farmer
 from core.availability import default_horse_periods, DEFAULT_MIN_LEAD_DAYS
+from core.rate_limit import enforce_loose_limit
 from core import email
 import schemas.bookings as booking_schemas
 
@@ -65,10 +66,13 @@ def get_farm_bookings(
 
 @router.post("/bookings", response_model=booking_schemas.BookingResponse, status_code=201)
 def create_booking(
+    request: Request,
     data: booking_schemas.BookingCreate,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    enforce_loose_limit(request, "bookings-create")
+
     # Locked for the rest of this transaction: the capacity check-and-insert
     # below must be atomic, so a second request for the same horse blocks here
     # until the first one commits (or rolls back), instead of both reading the
