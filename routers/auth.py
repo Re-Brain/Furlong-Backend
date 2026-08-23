@@ -203,8 +203,12 @@ def request_password_reset(
     raw_token = issue_password_reset_token(db, current_user.id)
     email.send_password_reset_email(current_user, raw_token)
 
-    # Deliberately does not touch the current session -- only a completed
-    # reset (POST /reset-password) forces re-login everywhere.
+    # Revoke every refresh-token session now, not just on a completed reset --
+    # a session open elsewhere (or a stolen cookie) must not stay valid just
+    # because the link hasn't been clicked yet. The requesting tab's own
+    # cookies are cleared client-side via logout().
+    revoke_all_for_user(db, current_user.id)
+
     return {"detail": "Password reset link sent"}
 
 
