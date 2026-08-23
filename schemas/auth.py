@@ -45,6 +45,17 @@ class PasswordUpdate(BaseModel):
     current_password: str
     new_password: str
 
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_max_length(cls, v):
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password must be 72 characters or fewer")
+        return v
+
 class LoginResponse(BaseModel):
     detail: str
 
