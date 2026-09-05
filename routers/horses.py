@@ -60,7 +60,13 @@ def create_horse(
     farm: models.Farm = Depends(get_farmer_farm),
     db: Session = Depends(get_db),
 ):
-    horse = models.Horse(**data.model_dump(), farm_id=farm.id)
+    # Lets the frontend create the row the instant a farmer starts adding a
+    # horse, before any field is filled in -- same pattern as a Farm being
+    # created at registration, ahead of its own profile fields.
+    fields = data.model_dump()
+    fields["name"] = (fields["name"] or "").strip() or "New Horse"
+
+    horse = models.Horse(**fields, farm_id=farm.id)
     db.add(horse)
     db.commit()
     db.refresh(horse)
