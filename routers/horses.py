@@ -96,6 +96,14 @@ def submit_horse(
             detail=f"Missing required fields: {', '.join(missing_fields)}",
         )
 
+    # Optional while drafting, required to submit -- kept out of REQUIRED_FIELDS
+    # since it gets its own message rather than folding into the aggregate list.
+    if not (horse.story or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Story is required before submitting for review.",
+        )
+
     missing_documents = horse_schemas.DOCUMENT_TYPES - {doc.document_type for doc in horse.documents}
     if missing_documents:
         raise HTTPException(
