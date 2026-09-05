@@ -73,6 +73,12 @@ def create_booking(
 ):
     enforce_loose_limit(request, "bookings-create")
 
+    # Mirrors the same restriction on donations (routers/donations.py), but
+    # deliberately doesn't name which roles are blocked -- the frontend never
+    # surfaces that an "admin" role exists at all.
+    if current_user.role in ("farmer", "admin"):
+        raise HTTPException(status_code=403, detail="This account type can't book a visit.")
+
     # Locked for the rest of this transaction: the capacity check-and-insert
     # below must be atomic, so a second request for the same horse blocks here
     # until the first one commits (or rolls back), instead of both reading the
