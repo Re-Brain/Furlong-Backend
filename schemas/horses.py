@@ -130,6 +130,23 @@ class HorsePeriodsUpdate(BaseModel):
     periods: HorsePeriodsCapacity
 
 
+class PeriodAvailability(BaseModel):
+    capacity: int = Field(ge=0)
+    booked: int = Field(ge=0)
+    remaining: int = Field(ge=0)
+
+
+class HorseAvailabilityPeriods(BaseModel):
+    morning: PeriodAvailability
+    afternoon: PeriodAvailability
+    evening: PeriodAvailability
+
+
+class HorseAvailabilityResponse(BaseModel):
+    date: date
+    periods: HorseAvailabilityPeriods
+
+
 class HorseResponse(BaseModel):
     id: int
     name: str
