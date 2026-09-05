@@ -85,6 +85,10 @@ def create_booking(
     )
     if not horse:
         raise HTTPException(status_code=404, detail="Horse not found")
+    # Same convention as GET /horses/{id}: a non-approved horse doesn't exist
+    # as far as the public booking flow is concerned.
+    if horse.status != "approved":
+        raise HTTPException(status_code=404, detail="Horse not found")
 
     farm = horse.farm
     # Resolved availability (falls back to the default when the farm never configured it).
