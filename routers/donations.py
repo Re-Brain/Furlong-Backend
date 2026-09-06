@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from jose import JWTError, jwt
 from typing import Optional
+import requests
 import stripe
 import models.models as models
 from database import get_db
@@ -12,6 +13,8 @@ from core.rate_limit import enforce_loose_limit
 import schemas.donations as donation_schemas
 
 router = APIRouter()
+
+FRANKFURTER_URL = "https://api.frankfurter.app/latest"
 
 
 def get_current_farmer_farm(
@@ -87,6 +90,41 @@ def create_donation_checkout_session(
     )
 
     return {"checkout_url": session.url}
+
+
+@router.get("/donations/fx-estimate", response_model=donation_schemas.FxEstimateResponse)
+def get_donation_fx_estimate(
+    request: Request,
+    amount: int = Query(..., ge=100, description="Donation amount in whole JPY"),
+    to: str = Query(..., description="Target currency code, e.g. usd"),
+):
+    """Display-only conversion estimate for the donation form -- shown next to
+    the real JPY amount so a visitor has a rough sense of the cost in their own
+    currency. Never affects the actual charge, which always stays in JPY.
+    """
+    enforce_loose_limit(request, "donations-fx-estimate")
+
+    currency = to.strip().upper()
+    if currency not in donation_schemas.SUPPORTED_FX_CURRENCIES:
+        raise HTTPException(status_code=422, detail=f"Unsupported currency '{to}'")
+
+    try:
+        response = requests.get(
+            FRANKFURTER_URL,
+            params={"amount": amount, "from": "JPY", "to": currency},
+            timeout=5,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException:
+        raise HTTPException(status_code=503, detail="Exchange rate service is unavailable")
+
+    return {
+        "jpy_amount": amount,
+        "currency": currency,
+        "converted_amount": data["rates"][currency],
+        "rate_date": data["date"],
+    }
 
 
 @router.get("/farms/me/donations", response_model=list[donation_schemas.FarmDonationResponse])
