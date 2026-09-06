@@ -60,9 +60,11 @@ def create_donation_checkout_session(
 
     # Created directly on the connected account (stripe_account = Stripe-Account header),
     # so the farm is the merchant of record; application_fee_amount skims our cut.
+    # payment_method_types is intentionally omitted -- an explicit list overrides
+    # Stripe's dynamic selection, which is what actually reads the connected
+    # account's Dashboard payment-method settings (Google Pay, Link, etc.).
     session = stripe.checkout.Session.create(
         mode="payment",
-        payment_method_types=["card"],
         line_items=[{
             "price_data": {
                 "currency": CURRENCY,
