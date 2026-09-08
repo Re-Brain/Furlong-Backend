@@ -8,8 +8,10 @@ from schemas.farms import FarmAvailability
 DOCUMENT_TYPES = {"passport", "registration", "ownership_transfer"}
 
 # Fields a horse must have filled in before it can be submitted for review.
-# "name" is excluded — HorseCreate already requires it, so it can never be
-# missing. Mirrors the frontend's own submit-button validation.
+# "name" is excluded — a blank/placeholder name isn't caught here since a farmer
+# who never renamed a freshly-created draft still has a non-empty `name` column
+# (see create_horse's placeholder fallback). Mirrors the frontend's own
+# submit-button validation.
 REQUIRED_FIELDS = [
     "color", "gender", "date_of_birth",
     "sire", "dam", "sires_sire", "sires_dam", "dams_sire", "dams_dam",
@@ -17,7 +19,10 @@ REQUIRED_FIELDS = [
 
 
 class HorseCreate(BaseModel):
-    name: str
+    # Optional so a draft can be created the instant a farmer starts adding a
+    # horse, before they've typed anything -- create_horse fills in a
+    # placeholder when this is left blank.
+    name: Optional[str] = None
     story: Optional[str] = None
     date_of_birth: Optional[date] = None
     color: Optional[str] = None
@@ -123,6 +128,23 @@ class HorsePeriodsCapacity(BaseModel):
 
 class HorsePeriodsUpdate(BaseModel):
     periods: HorsePeriodsCapacity
+
+
+class PeriodAvailability(BaseModel):
+    capacity: int = Field(ge=0)
+    booked: int = Field(ge=0)
+    remaining: int = Field(ge=0)
+
+
+class HorseAvailabilityPeriods(BaseModel):
+    morning: PeriodAvailability
+    afternoon: PeriodAvailability
+    evening: PeriodAvailability
+
+
+class HorseAvailabilityResponse(BaseModel):
+    date: date
+    periods: HorseAvailabilityPeriods
 
 
 class HorseResponse(BaseModel):

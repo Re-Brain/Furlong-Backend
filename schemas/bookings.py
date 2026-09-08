@@ -12,10 +12,11 @@ class BookingCreate(BaseModel):
 
 
 class BookingUpdate(BaseModel):
-    status: Literal["confirmed", "declined", "cancelled"]
-    # Required for a farm-owner decline/cancel, optional for a visitor's own
-    # cancellation, and rejected outright for confirm. Enforced in the route,
-    # since the rule is keyed on who's making the change, not just the status.
+    # Cancellation is the only update left -- bookings auto-confirm at
+    # creation, so there's no pending state for a farm owner to confirm/decline.
+    status: Literal["cancelled"]
+    # Required for a farm-owner cancellation, optional for a visitor's own.
+    # Enforced in the route, since the rule is keyed on who's making the change.
     reason: Optional[str] = None
 
 

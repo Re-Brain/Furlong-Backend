@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile, File, Form
+from datetime import date as date_cls
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile, File, Form
 from jose import JWTError, jwt
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -6,6 +7,8 @@ from typing import Literal, Optional
 import models.models as models
 from database import get_db
 from core.auth import SECRET_KEY, ALGORITHM, ACCESS_COOKIE_NAME
+from core.availability import PERIOD_KEYS, default_horse_periods
+from routers.auth import get_current_user
 from routers.farms import get_current_farmer
 from core.cloudinary import upload_image, delete_image, upload_document, delete_document
 from core import email
@@ -60,7 +63,13 @@ def create_horse(
     farm: models.Farm = Depends(get_farmer_farm),
     db: Session = Depends(get_db),
 ):
-    horse = models.Horse(**data.model_dump(), farm_id=farm.id)
+    # Lets the frontend create the row the instant a farmer starts adding a
+    # horse, before any field is filled in -- same pattern as a Farm being
+    # created at registration, ahead of its own profile fields.
+    fields = data.model_dump()
+    fields["name"] = (fields["name"] or "").strip() or "New Horse"
+
+    horse = models.Horse(**fields, farm_id=farm.id)
     db.add(horse)
     db.commit()
     db.refresh(horse)
@@ -149,6 +158,52 @@ def get_horse(
     if horse.status != "approved":
         raise HTTPException(status_code=404, detail="Horse not found")
     return horse_schemas.HorseResponse.model_validate(horse)
+
+
+@router.get("/horses/{horse_id}/availability", response_model=horse_schemas.HorseAvailabilityResponse)
+def get_horse_availability(
+    horse_id: int,
+    date: date_cls = Query(..., description="Date to check, YYYY-MM-DD"),
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    horse = db.query(models.Horse).filter(models.Horse.id == horse_id).first()
+    if not horse:
+        raise HTTPException(status_code=404, detail="Horse not found")
+
+    # Same visibility rule as GET /horses/{id}: the owning farmer and admins
+    # can check any horse, everyone else only an approved one. Unlike that
+    # endpoint, this one requires login at all (see get_current_user above) --
+    # the booking page it feeds already requires an authenticated visitor.
+    is_owner = user.role == "farmer" and horse.farm.owner_id == user.id
+    is_admin = user.role == "admin"
+    if not (is_owner or is_admin) and horse.status != "approved":
+        raise HTTPException(status_code=404, detail="Horse not found")
+
+    horse_periods = horse.periods if horse.periods is not None else default_horse_periods()
+
+    booked_by_period = dict(
+        db.query(models.Booking.period, func.coalesce(func.sum(models.Booking.party_size), 0))
+        .filter(
+            models.Booking.horse_id == horse.id,
+            models.Booking.date == date,
+            models.Booking.status == "confirmed",
+        )
+        .group_by(models.Booking.period)
+        .all()
+    )
+
+    periods = {}
+    for period in PERIOD_KEYS:
+        capacity = horse_periods.get(period, 0)
+        booked = booked_by_period.get(period, 0)
+        periods[period] = {
+            "capacity": capacity,
+            "booked": booked,
+            "remaining": max(capacity - booked, 0),
+        }
+
+    return {"date": date, "periods": periods}
 
 
 @router.patch("/horses/{horse_id}", response_model=horse_schemas.HorseResponse)

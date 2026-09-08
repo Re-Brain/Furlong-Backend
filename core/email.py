@@ -42,7 +42,6 @@ COLORS = {
 STATUS_STYLES = {
     "pending": {"bg": "#FBE8A6", "text": "#8A6A16", "label": "Pending"},
     "confirmed": {"bg": "#DCEEDD", "text": "#1F6B3A", "label": "Confirmed"},
-    "declined": {"bg": "#F8D9D3", "text": "#B23A2E", "label": "Declined"},
     "cancelled": {"bg": "#EDE8DC", "text": "#6B6153", "label": "Cancelled"},
     "approved": {"bg": "#DCEEDD", "text": "#1F6B3A", "label": "Approved"},
     "rejected": {"bg": "#F8D9D3", "text": "#B23A2E", "label": "Rejected"},
@@ -57,9 +56,9 @@ LOGO_URL = "https://res.cloudinary.com/drvur9wfo/image/upload/v1785058259/email-
 def _safe(fn):
     """Never let a send raise. Returns True on success, False on failure (logged).
 
-    The return value is ignored by the booking routes (email is fire-and-forget
-    there), but the reminder job uses it to decide whether reminder_sent_at
-    should be stamped, so a transient failure gets retried on the next run.
+    The return value is ignored everywhere today -- every call site treats
+    email as fire-and-forget -- but is kept so a future retry-on-failure
+    caller (like the old booking-reminder job) has something to check.
     """
     @functools.wraps(fn)
     def wrapper(*args, **kwargs) -> bool:
@@ -360,37 +359,8 @@ def send_password_reset_email(user, token: str) -> None:
 
 
 @_safe
-def send_new_booking_request(booking) -> None:
-    """#1a Visitor creates a booking -> notify the farmer."""
-    _send_booking_email(
-        to=booking.farm.owner.email,
-        subject=f"New booking request for {booking.horse_name}",
-        status_key="pending",
-        heading="New booking request",
-        intro=f"{booking.visitor_name} has requested to visit {booking.horse_name}.",
-        contact_line=f"Contact the visitor: {booking.visitor_name} ({booking.visitor_email})",
-        booking=booking,
-    )
-
-
-@_safe
-def send_new_booking_confirmation(booking) -> None:
-    """#1b Visitor creates a booking -> also notify the visitor their request was submitted."""
-    _send_booking_email(
-        to=booking.visitor_email,
-        subject=f"Your booking request has been sent: {booking.horse_name}",
-        status_key="pending",
-        heading="Your booking request has been sent",
-        intro=f"Your request to visit {booking.horse_name} at {booking.farm_name} has been submitted.",
-        contact_line=f"Farm: {booking.farm_name}",
-        note="This isn't confirmed yet — please wait for the farmer to approve your request before you come to visit.",
-        booking=booking,
-    )
-
-
-@_safe
 def send_booking_cancelled_by_visitor(booking) -> None:
-    """#2a Visitor cancels their booking -> notify the farmer."""
+    """#2a Visitor cancels their (auto-confirmed) booking -> notify the farmer."""
     _send_booking_email(
         to=booking.farm.owner.email,
         subject=f"Booking cancelled: {booking.horse_name}",
@@ -404,7 +374,7 @@ def send_booking_cancelled_by_visitor(booking) -> None:
 
 @_safe
 def send_booking_cancellation_receipt(booking) -> None:
-    """#2b Visitor cancels their booking -> also confirm it to the visitor."""
+    """#2b Visitor cancels their (auto-confirmed) booking -> also confirm it to the visitor."""
     _send_booking_email(
         to=booking.visitor_email,
         subject=f"You cancelled your booking: {booking.horse_name}",
@@ -417,38 +387,8 @@ def send_booking_cancellation_receipt(booking) -> None:
 
 
 @_safe
-def send_booking_declined(booking) -> None:
-    """#3a Farmer declines a pending request -> notify the visitor."""
-    _send_booking_email(
-        to=booking.visitor_email,
-        subject=f"Your booking request was declined: {booking.horse_name}",
-        status_key="declined",
-        heading="Your booking request was declined",
-        intro=f"{booking.farm_name} was unable to accept your visit request for {booking.horse_name}.",
-        contact_line=f"Farm: {booking.farm_name}",
-        reason=booking.reason,
-        booking=booking,
-    )
-
-
-@_safe
-def send_booking_declined_receipt(booking) -> None:
-    """#3b Farmer declines a pending request -> also confirm it to the farmer."""
-    _send_booking_email(
-        to=booking.farm.owner.email,
-        subject=f"You declined a booking request: {booking.horse_name}",
-        status_key="declined",
-        heading="You declined a booking request",
-        intro=f"You declined {booking.visitor_name}'s request to visit {booking.horse_name}.",
-        contact_line=f"Visitor: {booking.visitor_name} ({booking.visitor_email})",
-        reason=booking.reason,
-        booking=booking,
-    )
-
-
-@_safe
 def send_booking_confirmed(booking) -> None:
-    """#4a Farmer confirms a pending request -> notify the visitor."""
+    """#1a Visitor creates a booking -> it auto-confirms immediately -> notify the visitor."""
     _send_booking_email(
         to=booking.visitor_email,
         subject=f"Your booking is confirmed: {booking.horse_name}",
@@ -462,7 +402,7 @@ def send_booking_confirmed(booking) -> None:
 
 @_safe
 def send_booking_confirmed_receipt(booking) -> None:
-    """#4b Farmer confirms a pending request -> also confirm it to the farmer."""
+    """#1b Visitor creates a booking -> it auto-confirms immediately -> also confirm it to the farmer."""
     _send_booking_email(
         to=booking.farm.owner.email,
         subject=f"You confirmed a booking: {booking.horse_name}",
@@ -476,7 +416,7 @@ def send_booking_confirmed_receipt(booking) -> None:
 
 @_safe
 def send_booking_cancelled_by_farmer(booking) -> None:
-    """#5a Farmer cancels an already-confirmed visit -> notify the visitor."""
+    """#3a Farmer cancels an already-confirmed visit -> notify the visitor."""
     _send_booking_email(
         to=booking.visitor_email,
         subject=f"Your booking was cancelled: {booking.horse_name}",
@@ -491,7 +431,7 @@ def send_booking_cancelled_by_farmer(booking) -> None:
 
 @_safe
 def send_booking_cancelled_by_farmer_receipt(booking) -> None:
-    """#5b Farmer cancels an already-confirmed visit -> also confirm it to the farmer."""
+    """#3b Farmer cancels an already-confirmed visit -> also confirm it to the farmer."""
     _send_booking_email(
         to=booking.farm.owner.email,
         subject=f"You cancelled a booking: {booking.horse_name}",
@@ -735,21 +675,4 @@ def send_farm_rejected_receipt(farm, admin_email: str) -> None:
         contact_line=f"Farm: {farm.name}",
         reason=farm.rejection_reason,
         farm=farm,
-    )
-
-
-@_safe
-def send_pending_reminder(booking) -> None:
-    """#6 Pending request nearing the visit date, still unanswered -> notify the farmer."""
-    _send_booking_email(
-        to=booking.farm.owner.email,
-        subject=f"Reminder: booking request awaiting response for {booking.horse_name}",
-        status_key="pending",
-        heading="Booking request awaiting your response",
-        intro=(
-            f"A booking request from {booking.visitor_name} for {booking.horse_name} "
-            "is still pending and the visit date is approaching."
-        ),
-        contact_line=f"Contact the visitor: {booking.visitor_name} ({booking.visitor_email})",
-        booking=booking,
     )
