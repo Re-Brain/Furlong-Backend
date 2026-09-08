@@ -8,7 +8,9 @@ stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
-FRONTEND_URL = "http://localhost:5173"
+# Points at the deployed frontend in production; falls back to the local dev
+# server so nothing breaks for anyone who hasn't set this yet.
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 PLATFORM_FEE_PERCENT = 20
 
