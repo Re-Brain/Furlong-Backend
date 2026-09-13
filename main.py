@@ -1,3 +1,5 @@
+import os
+
 from routers import auth, horses, farms, bookings, donations, admin
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +16,9 @@ app = FastAPI()
 app.add_middleware(CSRFMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    # Always allow the local dev frontend, plus whatever FRONTEND_URL is set
+    # to in .env (the deployed frontend's origin in production).
+    allow_origins=list({"http://localhost:5173", os.getenv("FRONTEND_URL", "http://localhost:5173")}),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
