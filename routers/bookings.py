@@ -141,6 +141,24 @@ def create_booking(
             detail="You already have a booking for this horse on this date and period",
         )
 
+    # A visitor can only physically be with one horse at a time -- block a
+    # second horse at the *same farm* in the same slot. Scoped to one farm
+    # (not globally) since a farm's own horses are the only ones a visitor
+    # could otherwise end up overlapping between in person.
+    other_horse_same_slot = db.query(models.Booking).filter(
+        models.Booking.visitor_id == current_user.id,
+        models.Booking.farm_id == farm.id,
+        models.Booking.date == data.date,
+        models.Booking.period == data.period,
+        models.Booking.status == "confirmed",
+        models.Booking.horse_id != data.horse_id,
+    ).first()
+    if other_horse_same_slot:
+        raise HTTPException(
+            status_code=409,
+            detail="You already have a booking for another horse at this farm on this date and period",
+        )
+
     # Live (confirmed) bookings still hold their spot; a cancelled one frees up
     # capacity. The horse row lock taken above makes this sum-then-insert
     # atomic against concurrent requests.
