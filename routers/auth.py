@@ -10,7 +10,7 @@ from core.auth import (
     create_email_verification_token, decode_email_verification_token,
     create_csrf_token, clear_auth_cookies,
     ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME, CSRF_COOKIE_NAME,
-    ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, DEBUG,
+    ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, DEBUG, COOKIE_DOMAIN,
 )
 from core.refresh_tokens import issue_refresh_token, rotate_refresh_token, revoke_token, revoke_all_for_user
 from core.rate_limit import check_strict_limit, record_attempt, reset as reset_rate_limit, STRICT_WINDOW_SECONDS
@@ -260,20 +260,20 @@ def login(request: Request, response: Response, form: OAuth2PasswordRequestForm 
     # cookie is deliberately readable so the frontend can echo it back.
     response.set_cookie(
         ACCESS_COOKIE_NAME, token,
-        httponly=True, secure=not DEBUG, samesite="lax", path="/", max_age=access_max_age,
+        httponly=True, secure=not DEBUG, samesite="lax", path="/", max_age=access_max_age, domain=COOKIE_DOMAIN,
     )
     # Path=/ (not narrower) so /logout can also see it and revoke it
     # server-side -- Path=/refresh would exclude /logout too, since RFC 6265
     # path-scoping only covers paths nested under the cookie's own path.
     response.set_cookie(
         REFRESH_COOKIE_NAME, refresh_token,
-        httponly=True, secure=not DEBUG, samesite="lax", path="/", max_age=refresh_max_age,
+        httponly=True, secure=not DEBUG, samesite="lax", path="/", max_age=refresh_max_age, domain=COOKIE_DOMAIN,
     )
     # Tied to the refresh token's lifetime, not the access token's -- otherwise
     # it would already be expired by the time a refresh is actually needed.
     response.set_cookie(
         CSRF_COOKIE_NAME, csrf_token,
-        httponly=False, secure=not DEBUG, samesite="lax", path="/", max_age=refresh_max_age,
+        httponly=False, secure=not DEBUG, samesite="lax", path="/", max_age=refresh_max_age, domain=COOKIE_DOMAIN,
     )
 
     return {"detail": "Login successful"}
@@ -316,15 +316,15 @@ def refresh(response: Response, refresh_token: str | None = Cookie(default=None)
 
     response.set_cookie(
         ACCESS_COOKIE_NAME, new_access_token,
-        httponly=True, secure=not DEBUG, samesite="lax", path="/", max_age=access_max_age,
+        httponly=True, secure=not DEBUG, samesite="lax", path="/", max_age=access_max_age, domain=COOKIE_DOMAIN,
     )
     response.set_cookie(
         REFRESH_COOKIE_NAME, new_refresh_token,
-        httponly=True, secure=not DEBUG, samesite="lax", path="/", max_age=refresh_max_age,
+        httponly=True, secure=not DEBUG, samesite="lax", path="/", max_age=refresh_max_age, domain=COOKIE_DOMAIN,
     )
     response.set_cookie(
         CSRF_COOKIE_NAME, csrf_token,
-        httponly=False, secure=not DEBUG, samesite="lax", path="/", max_age=refresh_max_age,
+        httponly=False, secure=not DEBUG, samesite="lax", path="/", max_age=refresh_max_age, domain=COOKIE_DOMAIN,
     )
 
     return {"detail": "Token refreshed"}

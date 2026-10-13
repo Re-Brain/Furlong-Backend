@@ -13,6 +13,12 @@ ALGORITHM = os.getenv("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30"))
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+# Unset in local dev, where frontend/backend share the "localhost" hostname
+# (just different ports, which cookies ignore) so host-only cookies already
+# work. Production splits frontend/backend across different subdomains
+# (furlong.* / furlong-api.*), so cookies need an explicit shared domain
+# (e.g. ".furlong-uma-project.site") to be readable/sent across both.
+COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN") or None
 
 ACCESS_COOKIE_NAME = "access_token"
 REFRESH_COOKIE_NAME = "refresh_token"
@@ -21,9 +27,9 @@ CSRF_HEADER_NAME = "X-CSRF-Token"
 
 
 def clear_auth_cookies(response: Response) -> None:
-    response.delete_cookie(ACCESS_COOKIE_NAME, path="/")
-    response.delete_cookie(REFRESH_COOKIE_NAME, path="/")
-    response.delete_cookie(CSRF_COOKIE_NAME, path="/")
+    response.delete_cookie(ACCESS_COOKIE_NAME, path="/", domain=COOKIE_DOMAIN)
+    response.delete_cookie(REFRESH_COOKIE_NAME, path="/", domain=COOKIE_DOMAIN)
+    response.delete_cookie(CSRF_COOKIE_NAME, path="/", domain=COOKIE_DOMAIN)
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
